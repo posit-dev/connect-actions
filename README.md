@@ -1,14 +1,18 @@
 # connect-actions
 
-Reusable GitHub Actions for deploying to [Posit Connect](https://posit.co/products/enterprise/connect/).
+Deploy to [Posit Connect](https://posit.co/products/enterprise/connect/) from GitHub Actions.
+
+> Extremely beta! In active development! Please use and try this, and tell us how it goes--but be prepared.
 
 ## Actions
 
 ### `deploy` - Deploy to Posit Connect
 
-Deploys a Python application to Posit Connect. On pull requests, creates a draft preview bundle and comments the preview URL. On push to the default branch, deploys to production.
+Deploys a new version of your content to Connect. On push to the default branch, deploys to production. On pull requests, creates a draft preview bundle and comments the preview URL. To clean up those drafts when the PR closes, add a workflow with the `cleanup-previews` described below.
 
-**Supported app types:** Shiny, FastAPI, Flask, Dash, Streamlit, Bokeh, Quarto (auto-detected from Connect).
+The content must already exist on Connect. The purpose of this action is to allow you to update it via GitHub Actions so that it is integrated into your CI/CD workflow.
+
+> Currently, only content types supported by the [`rsconnect` CLI](https://github.com/posit-dev/rsconnect-python/) are supported in this action--basically, Python apps. 
 
 #### Inputs
 
@@ -35,6 +39,8 @@ The action resolves the Connect server URL, content GUID, and entrypoint through
 2. **Deployment file** - parsed from the TOML file specified by `deployment-file`
 3. **Auto-detection** - scans `.posit/publish/deployments/` for a single `.toml` file (errors if zero or multiple are found)
 
+Basically, if you deploy your content from Posit Publisher (in VS Code, Positron, or other Code OSS fork), commit the TOML files it generates to the repo, and assuming you only have one deployment target, the action will pick up everything it needs from it.
+
 #### Requirements generation
 
 If no `requirements.txt` exists in your repo, the action generates one from `pyproject.toml` using `uv pip compile`. If you already have a `requirements.txt`, it is used as-is.
@@ -57,10 +63,10 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Deploy to Connect
-        uses: posit-dev/connect-actions/deploy@v1
+        uses: posit-dev/connect-actions/deploy@main
         with:
           connect-api-key: ${{ secrets.CONNECT_API_KEY }}
           github-token: ${{ github.token }}
@@ -70,7 +76,7 @@ With explicit server/GUID (no deployment file needed):
 
 ```yaml
       - name: Deploy to Connect
-        uses: posit-dev/connect-actions/deploy@v1
+        uses: posit-dev/connect-actions/deploy@main
         with:
           connect-server: https://connect.example.com
           connect-api-key: ${{ secrets.CONNECT_API_KEY }}
@@ -78,11 +84,15 @@ With explicit server/GUID (no deployment file needed):
           github-token: ${{ github.token }}
 ```
 
+If you want to deploy something to multiple Connect servers, or you have multiple apps in your git repository, you can use the `posit-dev/connect-actions/deploy` multiple times.
+
 ---
 
 ### `cleanup-previews` - Cleanup PR Preview Bundles
 
 Deletes draft bundles that were deployed to Connect as PR previews. Designed to run when a PR is closed (merged or abandoned). Finds bundle IDs from PR comments left by the `deploy` action and deletes them via the Connect API.
+
+The example below also includes a `workflow_dispatch` trigger, which can be used to do manual cleanup, whether because the action failed previously (sorry!) or if preview bundle links showed up after the original cleanup ran. 
 
 #### Inputs
 
@@ -116,10 +126,10 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Cleanup preview bundles
-        uses: posit-dev/connect-actions/cleanup-previews@v1
+        uses: posit-dev/connect-actions/cleanup-previews@main
         with:
           connect-api-key: ${{ secrets.CONNECT_API_KEY }}
           github-token: ${{ github.token }}
@@ -189,19 +199,5 @@ jobs:
           connect-api-key: ${{ secrets.CONNECT_API_KEY }}
           github-token: ${{ github.token }}
 ```
-
-## Deployment file format
-
-Both actions can read configuration from `.posit` deployment TOML files (created by the Posit Publisher VS Code extension or `rsconnect` CLI). The expected format:
-
-```toml
-server_url = "https://connect.example.com"
-id = "12345678-abcd-1234-abcd-1234567890ab"
-
-[configuration]
-entrypoint = "app.main:app"
-```
-
-## License
 
 MIT
