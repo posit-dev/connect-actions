@@ -1,0 +1,80 @@
+name: Deploy to Posit Connect
+description: Deploy an application to Posit Connect. Supports production deploys and draft PR previews.
+
+inputs:
+  connect-server:
+    description: Connect server URL (can be read from deployment-file)
+    required: false
+  connect-api-key:
+    description: Connect API key
+    required: true
+  content-guid:
+    description: Content GUID for the deployment (can be read from deployment-file)
+    required: false
+  deployment-file:
+    description: Path to .posit deployment TOML file. If not specified and connect-server/content-guid are missing, auto-detects from .posit/publish/deployments/
+    required: false
+  github-token:
+    description: GitHub token for commenting on PRs (required for pull_request events)
+    required: false
+  rsconnect-args:
+    description: Additional arguments to pass to rsconnect deploy (entrypoint can be read from deployment-file)
+    required: false
+    default: ''
+
+outputs:
+  content-url:
+    description: URL of the deployed content
+    value: ${{ steps.deploy.outputs.content_url }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+
+    - name: Set up rsconnect-python
+      shell: bash
+      run: uv tool install rsconnect
+
+    - name: Resolve deployment configuration
+      id: config
+      shell: bash
+      run: ${{ github.action_path }}/scripts/resolve-config.sh
+      env:
+        INPUT_CONNECT_SERVER: ${{ inputs.connect-server }}
+        INPUT_CONTENT_GUID: ${{ inputs.content-guid }}
+        INPUT_DEPLOYMENT_FILE: ${{ inputs.deployment-file }}
+
+    - name: Generate requirements.txt if needed
+      shell: bash
+      run: ${{ github.action_path }}/scripts/generate-requirements.sh
+
+    - name: Deploy to Connect
+      id: deploy
+      shell: bash
+      run: ${{ github.action_path }}/scripts/deploy.sh
+      env:
+        CONNECT_SERVER: ${{ steps.config.outputs.connect_server }}
+        CONNECT_API_KEY: ${{ inputs.connect-api-key }}
+        CONTENT_GUID: ${{ steps.config.outputs.content_guid }}
+        CONFIG_ENTRYPOINT: ${{ steps.config.outputs.entrypoint }}
+        GITHUB_EVENT_NAME: ${{ github.event_name }}
+        RSCONNECT_ARGS: ${{ inputs.rsconnect-args }}
+
+    - name: Comment preview URL on PR
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      env:
+        PREVIEW_URL: ${{ steps.deploy.outputs.content_url }}
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const previewUrl = process.env.PREVIEW_URL;
+
+          await github.rest.issues.createComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+            body: `**Preview deployed to Connect**: [${previewUrl}](${previewUrl})\n\n_Preview will be deleted when the PR is closed._`
+          });

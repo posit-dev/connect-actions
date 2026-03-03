@@ -1,0 +1,108 @@
+name: Cleanup Connect Preview Bundles
+description: Delete draft bundles from Connect that were deployed for PR previews
+
+inputs:
+  connect-server:
+    description: Connect server URL (can be read from deployment-file)
+    required: false
+  connect-api-key:
+    description: Connect API key
+    required: true
+  content-guid:
+    description: Content GUID for the deployment (can be read from deployment-file)
+    required: false
+  deployment-file:
+    description: Path to .posit deployment TOML file. If not specified and connect-server/content-guid are missing, auto-detects from .posit/publish/deployments/
+    required: false
+  github-token:
+    description: GitHub token for reading/commenting on PRs
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+
+    - name: Resolve deployment configuration
+      id: config
+      shell: bash
+      run: ${{ github.action_path }}/scripts/resolve-config.sh
+      env:
+        INPUT_CONNECT_SERVER: ${{ inputs.connect-server }}
+        INPUT_CONTENT_GUID: ${{ inputs.content-guid }}
+        INPUT_DEPLOYMENT_FILE: ${{ inputs.deployment-file }}
+
+    - name: Find and delete preview bundles
+      uses: actions/github-script@v7
+      env:
+        CONNECT_SERVER: ${{ steps.config.outputs.connect_server }}
+        CONNECT_API_KEY: ${{ inputs.connect-api-key }}
+        CONTENT_GUID: ${{ steps.config.outputs.content_guid }}
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          // Use workflow_dispatch input if provided, otherwise use context
+          const prNumber = context.payload.inputs?.pr_number || context.issue.number;
+
+          // Fetch all comments on the PR
+          const comments = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: prNumber,
+          });
+
+          // Pattern to match preview URLs with bundle IDs
+          const previewUrlPattern = /draft\/(\d+)/g;
+          const bundleIds = new Set();
+
+          // Extract bundle IDs only from preview deployment comments
+          for (const comment of comments.data) {
+            if (!comment.body.includes('Preview deployed to Connect')) {
+              continue;
+            }
+
+            const matches = [...comment.body.matchAll(previewUrlPattern)];
+            for (const match of matches) {
+              bundleIds.add(match[1]);
+            }
+          }
+
+          console.log(`Found ${bundleIds.size} preview bundle(s) to delete: ${[...bundleIds].join(', ')}`);
+
+          // Delete each bundle using Connect API
+          const connectServer = process.env.CONNECT_SERVER;
+          const apiKey = process.env.CONNECT_API_KEY;
+          const contentGuid = process.env.CONTENT_GUID;
+
+          for (const bundleId of bundleIds) {
+            try {
+              const response = await fetch(
+                `${connectServer}/__api__/v1/content/${contentGuid}/bundles/${bundleId}`,
+                {
+                  method: 'DELETE',
+                  headers: {
+                    'Authorization': `Key ${apiKey}`,
+                  },
+                }
+              );
+
+              if (response.ok) {
+                console.log(`Deleted bundle ${bundleId}`);
+              } else {
+                const errorText = await response.text();
+                console.error(`Failed to delete bundle ${bundleId}: ${response.status} ${errorText}`);
+              }
+            } catch (error) {
+              console.error(`Error deleting bundle ${bundleId}:`, error);
+            }
+          }
+
+          if (bundleIds.size > 0) {
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: `Cleaned up ${bundleIds.size} preview bundle(s): ${[...bundleIds].join(', ')}`
+            });
+          }
