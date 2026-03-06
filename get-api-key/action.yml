@@ -53,8 +53,17 @@ runs:
         # Strip trailing slash from server URL
         CONNECT_SERVER="${CONNECT_SERVER%/}"
 
+        EXCHANGE_URL="$CONNECT_SERVER/v1/oauth/credentials/"
+        REQUEST_BODY="grant_type=urn:ietf:params:oauth:grant-type:token-exchange&subject_token_type=urn:ietf:params:oauth:token-type:id_token&subject_token=<REDACTED>&requested_token_type=urn:posit:connect:api-key"
+
+        echo "::group::Token exchange request"
+        echo "POST $EXCHANGE_URL"
+        echo "Content-Type: application/x-www-form-urlencoded"
+        echo "Body: $REQUEST_BODY"
+        echo "::endgroup::"
+
         HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-          "$CONNECT_SERVER/v1/oauth/credentials/" \
+          "$EXCHANGE_URL" \
           -H "Content-Type: application/x-www-form-urlencoded" \
           -d "grant_type=urn:ietf:params:oauth:grant-type:token-exchange" \
           -d "subject_token_type=urn:ietf:params:oauth:token-type:id_token" \
@@ -65,12 +74,16 @@ runs:
         HTTP_BODY=$(echo "$HTTP_RESPONSE" | sed '$d')
         HTTP_STATUS=$(echo "$HTTP_RESPONSE" | tail -n1)
 
+        echo "::group::Token exchange response"
+        echo "HTTP status: $HTTP_STATUS"
+        echo "Body: $HTTP_BODY"
+        echo "::endgroup::"
+
         if [ "$HTTP_STATUS" -eq 200 ]; then
           API_KEY=$(echo "$HTTP_BODY" | jq -r '.access_token')
 
           if [ "$API_KEY" = "null" ] || [ -z "$API_KEY" ]; then
             echo "::error::Token exchange returned 200 but no access_token in response"
-            echo "Response: $HTTP_BODY"
             exit 1
           fi
 
@@ -81,11 +94,9 @@ runs:
           echo "::error::OIDC token exchange endpoint not found. This Connect server may not support OIDC token exchange (requires Connect 2025.01.0 or later)."
           exit 1
         elif [ "$HTTP_STATUS" -eq 401 ] || [ "$HTTP_STATUS" -eq 403 ]; then
-          echo "::error::OIDC token exchange was rejected. Verify that OIDC federation is configured on your Connect server for this GitHub repository."
-          echo "Response: $HTTP_BODY"
+          echo "::error::OIDC token exchange was rejected (HTTP $HTTP_STATUS). Verify that OIDC federation is configured on your Connect server for this GitHub repository."
           exit 1
         else
           echo "::error::Token exchange failed (HTTP $HTTP_STATUS). If OIDC is not configured, provide connect-api-key directly."
-          echo "Response: $HTTP_BODY"
           exit 1
         fi
