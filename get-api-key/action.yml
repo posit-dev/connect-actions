@@ -25,9 +25,21 @@ runs:
           // Strip protocol and trailing slash to get the audience
           const audience = serverUrl.replace(/^https?:\/\//, '').replace(/\/+$/, '');
           core.info(`Requesting OIDC token with audience: ${audience}`);
-          const token = await core.getIDToken(audience);
-          core.setSecret(token);
-          core.setOutput('id_token', token);
+          try {
+            const token = await core.getIDToken(audience);
+            core.setSecret(token);
+            core.setOutput('id_token', token);
+          } catch (error) {
+            if (error.message?.includes('ACTIONS_ID_TOKEN_REQUEST_URL')) {
+              core.setFailed(
+                'Unable to request OIDC token. Your workflow must include "id-token: write" in its permissions. Example:\n\n' +
+                '  permissions:\n' +
+                '    id-token: write\n'
+              );
+            } else {
+              throw error;
+            }
+          }
 
     - name: Exchange OIDC token for Connect API key
       id: exchange
