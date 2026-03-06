@@ -35,7 +35,7 @@ runs:
 
     - name: Set up rsconnect-python
       shell: bash
-      run: uv tool install rsconnect
+      run: uv tool install rsconnect-python --from "git+https://github.com/posit-dev/rsconnect-python"
 
     - name: Resolve deployment configuration
       id: config
