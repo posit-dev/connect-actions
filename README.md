@@ -6,6 +6,51 @@ Deploy to [Posit Connect](https://posit.co/products/enterprise/connect/) from Gi
 
 ## Actions
 
+### `get-api-key` - Get Connect API Key via OIDC
+
+Exchanges a GitHub OIDC token for a Posit Connect API key. This allows keyless authentication--no stored secrets required. Requires [OIDC federation](https://docs.posit.co/connect/admin/security/oauth-integrations/#github-actions) to be configured on your Connect server.
+
+Use this action before `deploy` or `cleanup-previews` and pass its output as the `connect-api-key` input.
+
+#### Inputs
+
+| Input | Required | Description |
+|---|---|---|
+| `connect-server` | Yes | Connect server URL (e.g., `https://connect.example.com`) |
+
+#### Outputs
+
+| Output | Description |
+|---|---|
+| `api-key` | Connect API key obtained via OIDC token exchange |
+
+#### Example
+
+```yaml
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Get Connect API key
+        id: connect-auth
+        uses: posit-dev/connect-actions/get-api-key@main
+        with:
+          connect-server: ${{ vars.CONNECT_URL }}
+
+      - name: Deploy to Connect
+        uses: posit-dev/connect-actions/deploy@main
+        with:
+          connect-api-key: ${{ steps.connect-auth.outputs.api-key }}
+          github-token: ${{ github.token }}
+```
+
+> Your workflow must include `id-token: write` in its permissions for the OIDC token request to succeed.
+
+---
+
 ### `deploy` - Deploy to Posit Connect
 
 Deploys a new version of your content to Connect. On push to the default branch, deploys to production. On pull requests, creates a draft preview bundle and comments the preview URL. To clean up those drafts when the PR closes, add a workflow with the `cleanup-previews` described below.
@@ -165,6 +210,84 @@ Using both actions together gives you a complete PR preview workflow:
 
 1. **PR opened/updated** -- `deploy` creates a draft bundle and comments the preview URL
 2. **PR closed/merged** -- `cleanup-previews` deletes the draft bundles
+
+### With OIDC (recommended)
+
+If your Connect server has OIDC federation configured, you can use keyless authentication instead of storing API key secrets:
+
+```yaml
+# .github/workflows/deploy.yml
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get Connect API key
+        id: connect-auth
+        uses: posit-dev/connect-actions/get-api-key@v1
+        with:
+          connect-server: ${{ vars.CONNECT_URL }}
+
+      - name: Deploy to Connect
+        uses: posit-dev/connect-actions/deploy@v1
+        with:
+          connect-api-key: ${{ steps.connect-auth.outputs.api-key }}
+          github-token: ${{ github.token }}
+```
+
+```yaml
+# .github/workflows/cleanup-previews.yml
+name: Cleanup PR Previews
+
+on:
+  pull_request:
+    types: [closed]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number to clean up
+        required: true
+        type: number
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get Connect API key
+        id: connect-auth
+        uses: posit-dev/connect-actions/get-api-key@v1
+        with:
+          connect-server: ${{ vars.CONNECT_URL }}
+
+      - name: Cleanup preview bundles
+        uses: posit-dev/connect-actions/cleanup-previews@v1
+        with:
+          connect-api-key: ${{ steps.connect-auth.outputs.api-key }}
+          github-token: ${{ github.token }}
+```
+
+### With API key secret
+
+If OIDC is not available, you can use a stored API key secret:
 
 ```yaml
 # .github/workflows/deploy.yml
