@@ -53,7 +53,7 @@ runs:
         # Strip trailing slash from server URL
         CONNECT_SERVER="${CONNECT_SERVER%/}"
 
-        EXCHANGE_URL="$CONNECT_SERVER/v1/oauth/credentials/"
+        EXCHANGE_URL="$CONNECT_SERVER/__api__/v1/oauth/integrations/credentials"
         REQUEST_BODY="grant_type=urn:ietf:params:oauth:grant-type:token-exchange&subject_token_type=urn:ietf:params:oauth:token-type:id_token&subject_token=<REDACTED>&requested_token_type=urn:posit:connect:api-key"
 
         echo "::group::Token exchange request"
