@@ -56,6 +56,12 @@ runs:
         EXCHANGE_URL="$CONNECT_SERVER/__api__/v1/oauth/integrations/credentials"
         REQUEST_BODY="grant_type=urn:ietf:params:oauth:grant-type:token-exchange&subject_token_type=urn:ietf:params:oauth:token-type:id_token&subject_token=<REDACTED>&requested_token_type=urn:posit:connect:api-key"
 
+        echo "::group::OIDC token claims"
+        # Decode JWT payload (second dot-separated segment)
+        JWT_PAYLOAD=$(echo "$ID_TOKEN" | cut -d. -f2 | tr '_-' '/+' | base64 -d 2>/dev/null || true)
+        echo "$JWT_PAYLOAD" | jq . 2>/dev/null || echo "$JWT_PAYLOAD"
+        echo "::endgroup::"
+
         echo "::group::Token exchange request"
         echo "POST $EXCHANGE_URL"
         echo "Content-Type: application/x-www-form-urlencoded"
