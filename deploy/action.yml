@@ -71,7 +71,6 @@ runs:
         github-token: ${{ inputs.github-token }}
         script: |
           const previewUrl = process.env.PREVIEW_URL;
-          const body = `**Preview deployed to Connect**: [${previewUrl}](${previewUrl})\n\n_Preview will be deleted when the PR is closed._`;
           const marker = 'Preview deployed to Connect';
 
           const { data: comments } = await github.rest.issues.listComments({
@@ -81,6 +80,28 @@ runs:
           });
 
           const existing = comments.find(c => c.body.includes(marker));
+
+          // Collect all previous bundle IDs from the existing comment's metadata
+          // Keep metadataPattern in sync with cleanup-previews/action.yml
+          const metadataPattern = /<!-- preview-bundles:([\d,]+) -->/;
+          const bundleIds = new Set();
+          if (existing) {
+            const metadataMatch = existing.body.match(metadataPattern);
+            if (metadataMatch) {
+              for (const id of metadataMatch[1].split(',')) {
+                bundleIds.add(id);
+              }
+            }
+          }
+
+          // Extract the new bundle ID from the preview URL and add it
+          const newBundleMatch = previewUrl.match(/draft\/(\d+)/);
+          if (newBundleMatch) {
+            bundleIds.add(newBundleMatch[1]);
+          }
+
+          const metadata = `<!-- preview-bundles:${[...bundleIds].join(',')} -->`;
+          const body = `**Preview deployed to Connect**: [${previewUrl}](${previewUrl})\n\n_Preview will be deleted when the PR is closed._\n${metadata}`;
 
           if (existing) {
             await github.rest.issues.updateComment({
