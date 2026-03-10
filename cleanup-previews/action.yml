@@ -53,7 +53,6 @@ runs:
           });
 
           // Extract bundle IDs only from preview deployment comments
-          const previewUrlPattern = /draft\/(\d+)/g;
           // Keep metadataPattern in sync with deploy/action.yml
           const metadataPattern = /<!-- preview-bundles:([\d,]+) -->/;
           const bundleIds = new Set();
@@ -63,17 +62,10 @@ runs:
               continue;
             }
 
-            // Prefer the hidden metadata which tracks all bundle IDs across updates
             const metadataMatch = comment.body.match(metadataPattern);
             if (metadataMatch) {
               for (const id of metadataMatch[1].split(',')) {
                 bundleIds.add(id);
-              }
-            } else {
-              // Fallback: extract from preview URL (for comments created before metadata tracking)
-              const matches = [...comment.body.matchAll(previewUrlPattern)];
-              for (const match of matches) {
-                bundleIds.add(match[1]);
               }
             }
           }
