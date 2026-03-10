@@ -81,7 +81,9 @@ runs:
 
           const existing = comments.find(c => c.body.includes(marker));
 
-          // Collect all previous bundle IDs from the existing comment's metadata
+          // We store all deployed bundle IDs in a hidden HTML comment within
+          // the PR comment body. The cleanup-previews action parses this to
+          // know which bundles to delete when the PR is closed.
           // Keep metadataPattern in sync with cleanup-previews/action.yml
           const metadataPattern = /<!-- preview-bundles:([\d,]+) -->/;
           const bundleIds = new Set();
@@ -101,7 +103,8 @@ runs:
           }
 
           const metadata = `<!-- preview-bundles:${[...bundleIds].join(',')} -->`;
-          const body = `**Preview deployed to Connect**: [${previewUrl}](${previewUrl})\n\n_Preview will be deleted when the PR is closed._\n${metadata}`;
+          const shortSha = context.payload.pull_request.head.sha.substring(0, 7);
+          const body = `**Preview deployed to Connect**: [${previewUrl}](${previewUrl})\n\nDeployed from commit ${shortSha}.\n\n_Preview will be deleted when the PR is closed._\n${metadata}`;
 
           if (existing) {
             await github.rest.issues.updateComment({
