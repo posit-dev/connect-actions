@@ -46,25 +46,27 @@ runs:
           const prNumber = context.payload.inputs?.pr_number || context.issue.number;
 
           // Fetch all comments on the PR
-          const comments = await github.rest.issues.listComments({
+          const { data: comments } = await github.rest.issues.listComments({
             owner: context.repo.owner,
             repo: context.repo.repo,
             issue_number: prNumber,
           });
 
-          // Pattern to match preview URLs with bundle IDs
-          const previewUrlPattern = /draft\/(\d+)/g;
+          // Extract bundle IDs only from preview deployment comments
+          // Keep metadataPattern in sync with deploy/action.yml
+          const metadataPattern = /<!-- preview-bundles:([\d,]+) -->/;
           const bundleIds = new Set();
 
-          // Extract bundle IDs only from preview deployment comments
-          for (const comment of comments.data) {
+          for (const comment of comments) {
             if (!comment.body.includes('Preview deployed to Connect')) {
               continue;
             }
 
-            const matches = [...comment.body.matchAll(previewUrlPattern)];
-            for (const match of matches) {
-              bundleIds.add(match[1]);
+            const metadataMatch = comment.body.match(metadataPattern);
+            if (metadataMatch) {
+              for (const id of metadataMatch[1].split(',')) {
+                bundleIds.add(id);
+              }
             }
           }
 
