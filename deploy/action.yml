@@ -60,6 +60,14 @@ runs:
         CONTENT_GUID: ${{ steps.config.outputs.content_guid }}
         CONFIG_ENTRYPOINT: ${{ steps.config.outputs.entrypoint }}
         GITHUB_EVENT_NAME: ${{ github.event_name }}
+        GITHUB_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        GITHUB_ACTOR: ${{ github.actor }}
+        GITHUB_REF_NAME: ${{ github.ref_name }}
+        GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        PR_HEAD_REF: ${{ github.event.pull_request.head.ref || '' }}
+        PR_NUMBER: ${{ github.event.pull_request.number || '' }}
+        PR_TITLE: ${{ github.event.pull_request.title || '' }}
+        COMMIT_MESSAGE: ${{ github.event.head_commit.message || '' }}
         RSCONNECT_ARGS: ${{ inputs.rsconnect-args }}
 
     - name: Comment preview URL on PR
