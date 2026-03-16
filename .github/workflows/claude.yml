@@ -1,0 +1,96 @@
+name: Claude PR Assistant
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  issues:
+    types: [opened, assigned]
+  pull_request_review:
+    types: [submitted]
+  pull_request:
+    # Trigger for workflow testing
+    paths:
+      - '.github/workflows/claude.yml'
+
+jobs:
+  claude-code-action:
+    if: |
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'issues' && contains(github.event.issue.body, '@claude')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
+      github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+      pull-requests: write
+      issues: write
+      id-token: write
+    steps:
+      - name: Generate token for GitHub App
+        id: generate-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: 1129585
+          private-key: ${{ secrets.POSIT_CONNECT_PROJECTS_PEM }}
+          permission-actions: read
+          permission-contents: write
+          permission-pull-requests: write
+          permission-issues: write
+          owner: posit-dev
+          repositories: |
+            ${{ github.event.repository.name }}
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          token: ${{ steps.generate-token.outputs.token }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The AWS assume role step has this validation:
+      # Member must satisfy regular expression pattern: [\w+=,.@-]*
+      # so we should sanitize e.g. `[bot]` so that it is not rejected
+      - name: Sanitize role session name
+        id: session-name
+        run: |
+          echo "value=$(echo '${{ github.triggering_actor }}' | sed 's/[^a-zA-Z0-9_+=,.@-]/_/g')" >> "$GITHUB_OUTPUT"
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::440849847947:role/claude-code-gha
+          role-session-name: ${{ steps.session-name.outputs.value }}
+          aws-region: us-east-2
+
+      - name: Run Claude Code Action
+        uses: anthropics/claude-code-action@v1
+        with:
+          use_bedrock: true
+          github_token: ${{ steps.generate-token.outputs.token }}
+          branch_prefix: "claude-"
+          additional_permissions: "actions: read"
+          allowed_bots: "posit-connect-projects[bot]"
+          track_progress: true
+          prompt: |
+            You are a helpful AI assistant for code reviews, issue triage, and other development tasks.
+            Respond to comments and issues that mention you by creating pull requests, summarizing research, updating issues, and otherwise providing actionable advice.
+
+            If you cannot assist, politely inform the user. In your responses, don't be overly complimentary.
+            Stick to the facts and provide actionable advice.
+
+            When you implement code changes for an issue, create a pull request using
+            mcp__github__create_pull_request, or fall back to the `gh` CLI if that does not work.
+          claude_args: |
+            --model us.anthropic.claude-opus-4-6-v1
+            --fallback-model us.anthropic.claude-haiku-4-5-20251001-v1:0
+            --allowedTools WebFetch,WebSearch,Bash,mcp__github__create_pull_request,mcp__github__create_issue,mcp__github__search_issues,mcp__github__update_issue,mcp__github__create_pending_pull_request_review,mcp__github__add_pull_request_review_comment_to_pending_review,mcp__github__submit_pending_pull_request_review,mcp__github__get_pull_request_diff,mcp__github__sub_issue_write
