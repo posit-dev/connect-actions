@@ -3,6 +3,11 @@
 
 set -euo pipefail
 
+if [ -f "manifest.json" ]; then
+  echo "manifest.json found, dependencies will be read from it; skipping requirements.txt generation."
+  exit 0
+fi
+
 if [ -f "requirements.txt" ]; then
   echo "requirements.txt already exists, not regenerating."
   exit 0

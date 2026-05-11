@@ -5,37 +5,46 @@
 
 set -euo pipefail
 
-# Get app_mode from Connect API
-echo "Fetching app mode from Connect API..."
-CONTENT_INFO=$(curl -s -H "Authorization: Key $CONNECT_API_KEY" \
-  "$CONNECT_SERVER/__api__/v1/content/$CONTENT_GUID")
-
-APP_MODE=$(echo "$CONTENT_INFO" | jq -r '.app_mode // empty')
-
-if [ -z "$APP_MODE" ]; then
-  echo "Error: Could not determine app_mode from Connect API"
-  echo "Response: $CONTENT_INFO"
-  exit 1
-fi
-
-# Map Connect app_mode to rsconnect deploy subcommand
-case "$APP_MODE" in
-  "python-shiny") APP_TYPE="shiny" ;;
-  "python-fastapi") APP_TYPE="fastapi" ;;
-  "python-flask") APP_TYPE="flask" ;;
-  "python-dash") APP_TYPE="dash" ;;
-  "python-streamlit") APP_TYPE="streamlit" ;;
-  "python-bokeh") APP_TYPE="bokeh" ;;
-  "quarto-shiny") APP_TYPE="shiny" ;;
-  *) APP_TYPE="$APP_MODE" ;;
-esac
-
-echo "Detected app type: $APP_TYPE (from app_mode: $APP_MODE)"
-
-# Build entrypoint args if available
+# If a manifest.json is present, deploy with it directly. The manifest already
+# declares app type, entrypoint, and dependencies, so we skip the Connect
+# app_mode lookup and ignore CONFIG_ENTRYPOINT.
 ENTRYPOINT_ARGS=()
-if [ -n "${CONFIG_ENTRYPOINT:-}" ]; then
-  ENTRYPOINT_ARGS=(--entrypoint "$CONFIG_ENTRYPOINT")
+if [ -f "manifest.json" ]; then
+  echo "Found manifest.json; deploying with rsconnect deploy manifest"
+  APP_TYPE="manifest"
+  DEPLOY_TARGET="manifest.json"
+else
+  DEPLOY_TARGET="."
+
+  echo "Fetching app mode from Connect API..."
+  CONTENT_INFO=$(curl -s -H "Authorization: Key $CONNECT_API_KEY" \
+    "$CONNECT_SERVER/__api__/v1/content/$CONTENT_GUID")
+
+  APP_MODE=$(echo "$CONTENT_INFO" | jq -r '.app_mode // empty')
+
+  if [ -z "$APP_MODE" ]; then
+    echo "Error: Could not determine app_mode from Connect API"
+    echo "Response: $CONTENT_INFO"
+    exit 1
+  fi
+
+  # Map Connect app_mode to rsconnect deploy subcommand
+  case "$APP_MODE" in
+    "python-shiny") APP_TYPE="shiny" ;;
+    "python-fastapi") APP_TYPE="fastapi" ;;
+    "python-flask") APP_TYPE="flask" ;;
+    "python-dash") APP_TYPE="dash" ;;
+    "python-streamlit") APP_TYPE="streamlit" ;;
+    "python-bokeh") APP_TYPE="bokeh" ;;
+    "quarto-shiny") APP_TYPE="shiny" ;;
+    *) APP_TYPE="$APP_MODE" ;;
+  esac
+
+  echo "Detected app type: $APP_TYPE (from app_mode: $APP_MODE)"
+
+  if [ -n "${CONFIG_ENTRYPOINT:-}" ]; then
+    ENTRYPOINT_ARGS=(--entrypoint "$CONFIG_ENTRYPOINT")
+  fi
 fi
 
 # Deploy with --draft flag for pull requests
@@ -82,7 +91,7 @@ else
 fi
 
 # shellcheck disable=SC2086
-rsconnect deploy "$APP_TYPE" "${DRAFT_ARGS[@]}" --app-id "$CONTENT_GUID" "${ENTRYPOINT_ARGS[@]}" "${METADATA_ARGS[@]}" ${RSCONNECT_ARGS:-} . 2>&1 | tee deploy.log
+rsconnect deploy "$APP_TYPE" "${DRAFT_ARGS[@]}" --app-id "$CONTENT_GUID" "${ENTRYPOINT_ARGS[@]}" "${METADATA_ARGS[@]}" ${RSCONNECT_ARGS:-} "$DEPLOY_TARGET" 2>&1 | tee deploy.log
 
 # Extract URL from logs, stripping ANSI color codes
 CONTENT_URL=$(grep "$URL_PATTERN" deploy.log | sed "s/.*$URL_PATTERN //" | sed 's/\x1b\[[0-9;]*m//g')

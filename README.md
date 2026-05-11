@@ -45,6 +45,10 @@ Basically, if you deploy your content from Posit Publisher (in VS Code, Positron
 
 If no `requirements.txt` exists in your repo, the action generates one from `pyproject.toml` using `uv pip compile`. If you already have a `requirements.txt`, it is used as-is.
 
+#### Deploying with a `manifest.json`
+
+If a `manifest.json` exists at the root of your repo, the action deploys it directly using `rsconnect deploy manifest`. In this mode the manifest's declared app type, entrypoint, and dependencies are used as-is, so `requirements.txt` is not generated and the app type is not looked up from Connect.
+
 #### Example
 
 ```yaml
