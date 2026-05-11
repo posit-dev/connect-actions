@@ -22,6 +22,7 @@ The content must already exist on Connect. The purpose of this action is to allo
 | `connect-server` | No | Connect server URL. Can be read from `deployment-file` instead. |
 | `content-guid` | No | Content GUID. Can be read from `deployment-file` instead. |
 | `deployment-file` | No | Path to `.posit` deployment TOML file. Auto-detects from `.posit/publish/deployments/` if omitted and `connect-server`/`content-guid` are not set. |
+| `path` | No | Path to the application directory within the repository. Defaults to the repository root. Use this when your app lives in a subdirectory of your repo. |
 | `github-token` | No | GitHub token for commenting preview URLs on PRs |
 | `rsconnect-args` | No | Additional arguments passed to `rsconnect deploy` |
 
@@ -88,7 +89,23 @@ With explicit server/GUID (no deployment file needed):
           github-token: ${{ github.token }}
 ```
 
-If you want to deploy something to multiple Connect servers, or you have multiple apps in your git repository, you can use the `posit-dev/connect-actions/deploy` multiple times.
+If you want to deploy something to multiple Connect servers, or you have multiple apps in your git repository, you can use the `posit-dev/connect-actions/deploy` multiple times. Use the `path` input to point each invocation at the appropriate subdirectory:
+
+```yaml
+      - name: Deploy app1
+        uses: posit-dev/connect-actions/deploy@main
+        with:
+          connect-api-key: ${{ secrets.CONNECT_API_KEY }}
+          github-token: ${{ github.token }}
+          path: apps/app1
+
+      - name: Deploy app2
+        uses: posit-dev/connect-actions/deploy@main
+        with:
+          connect-api-key: ${{ secrets.CONNECT_API_KEY }}
+          github-token: ${{ github.token }}
+          path: apps/app2
+```
 
 ---
 
@@ -106,6 +123,7 @@ The example below also includes a `workflow_dispatch` trigger, which can be used
 | `connect-server` | No | Connect server URL. Can be read from `deployment-file` instead. |
 | `content-guid` | No | Content GUID. Can be read from `deployment-file` instead. |
 | `deployment-file` | No | Path to `.posit` deployment TOML file. Auto-detects if omitted. |
+| `path` | No | Path to the application directory within the repository. Defaults to the repository root. Should match the `path` used in the `deploy` action. |
 | `github-token` | Yes | GitHub token for reading/commenting on PRs |
 
 #### Example
