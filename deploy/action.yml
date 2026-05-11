@@ -14,6 +14,10 @@ inputs:
   deployment-file:
     description: Path to .posit deployment TOML file. If not specified and connect-server/content-guid are missing, auto-detects from .posit/publish/deployments/
     required: false
+  path:
+    description: Path to the application directory within the repository. Defaults to the repository root. All relative paths (deployment-file, manifest.json, requirements.txt, etc.) are resolved relative to this directory.
+    required: false
+    default: '.'
   github-token:
     description: GitHub token for commenting on PRs (required for pull_request events)
     required: false
@@ -40,6 +44,7 @@ runs:
     - name: Resolve deployment configuration
       id: config
       shell: bash
+      working-directory: ${{ inputs.path }}
       run: ${{ github.action_path }}/scripts/resolve-config.sh
       env:
         INPUT_CONNECT_SERVER: ${{ inputs.connect-server }}
@@ -48,11 +53,13 @@ runs:
 
     - name: Generate requirements.txt if needed
       shell: bash
+      working-directory: ${{ inputs.path }}
       run: ${{ github.action_path }}/scripts/generate-requirements.sh
 
     - name: Deploy to Connect
       id: deploy
       shell: bash
+      working-directory: ${{ inputs.path }}
       run: ${{ github.action_path }}/scripts/deploy.sh
       env:
         CONNECT_SERVER: ${{ steps.config.outputs.connect_server }}

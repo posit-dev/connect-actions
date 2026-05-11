@@ -14,6 +14,10 @@ inputs:
   deployment-file:
     description: Path to .posit deployment TOML file. If not specified and connect-server/content-guid are missing, auto-detects from .posit/publish/deployments/
     required: false
+  path:
+    description: Path to the application directory within the repository. Defaults to the repository root. Used to locate the deployment TOML file when auto-detecting.
+    required: false
+    default: '.'
   github-token:
     description: GitHub token for reading/commenting on PRs
     required: true
@@ -27,6 +31,7 @@ runs:
     - name: Resolve deployment configuration
       id: config
       shell: bash
+      working-directory: ${{ inputs.path }}
       run: ${{ github.action_path }}/scripts/resolve-config.sh
       env:
         INPUT_CONNECT_SERVER: ${{ inputs.connect-server }}
