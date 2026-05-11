@@ -8,11 +8,13 @@ set -euo pipefail
 # If a manifest.json is present, deploy with it directly. The manifest already
 # declares app type, entrypoint, and dependencies, so we skip the Connect
 # app_mode lookup and ignore CONFIG_ENTRYPOINT.
+ENTRYPOINT_ARGS=()
 if [ -f "manifest.json" ]; then
-  USE_MANIFEST=true
   echo "Found manifest.json; deploying with rsconnect deploy manifest"
+  APP_TYPE="manifest"
+  DEPLOY_TARGET="manifest.json"
 else
-  USE_MANIFEST=false
+  DEPLOY_TARGET="."
 
   echo "Fetching app mode from Connect API..."
   CONTENT_INFO=$(curl -s -H "Authorization: Key $CONNECT_API_KEY" \
@@ -40,8 +42,6 @@ else
 
   echo "Detected app type: $APP_TYPE (from app_mode: $APP_MODE)"
 
-  # Build entrypoint args if available
-  ENTRYPOINT_ARGS=()
   if [ -n "${CONFIG_ENTRYPOINT:-}" ]; then
     ENTRYPOINT_ARGS=(--entrypoint "$CONFIG_ENTRYPOINT")
   fi
@@ -90,13 +90,8 @@ else
   fi
 fi
 
-if [ "$USE_MANIFEST" = true ]; then
-  # shellcheck disable=SC2086
-  rsconnect deploy manifest "${DRAFT_ARGS[@]}" --app-id "$CONTENT_GUID" "${METADATA_ARGS[@]}" ${RSCONNECT_ARGS:-} manifest.json 2>&1 | tee deploy.log
-else
-  # shellcheck disable=SC2086
-  rsconnect deploy "$APP_TYPE" "${DRAFT_ARGS[@]}" --app-id "$CONTENT_GUID" "${ENTRYPOINT_ARGS[@]}" "${METADATA_ARGS[@]}" ${RSCONNECT_ARGS:-} . 2>&1 | tee deploy.log
-fi
+# shellcheck disable=SC2086
+rsconnect deploy "$APP_TYPE" "${DRAFT_ARGS[@]}" --app-id "$CONTENT_GUID" "${ENTRYPOINT_ARGS[@]}" "${METADATA_ARGS[@]}" ${RSCONNECT_ARGS:-} "$DEPLOY_TARGET" 2>&1 | tee deploy.log
 
 # Extract URL from logs, stripping ANSI color codes
 CONTENT_URL=$(grep "$URL_PATTERN" deploy.log | sed "s/.*$URL_PATTERN //" | sed 's/\x1b\[[0-9;]*m//g')
