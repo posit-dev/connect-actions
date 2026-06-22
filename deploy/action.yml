@@ -6,8 +6,18 @@ inputs:
     description: Connect server URL (can be read from deployment-file)
     required: false
   connect-api-key:
-    description: Connect API key
-    required: true
+    description: >-
+      Connect API key. If omitted, the action exchanges a GitHub OIDC token for
+      a short-lived key via trusted publishing, which requires 'id-token: write'
+      permission and a trusted publisher configured for this content on Connect.
+    required: false
+  audience:
+    description: >-
+      Audience to request for the GitHub OIDC token when connect-api-key is not
+      set. Must match the trusted publisher's configured audience on Connect
+      (whose default is "connect").
+    required: false
+    default: connect
   content-guid:
     description: Content GUID for the deployment (can be read from deployment-file)
     required: false
@@ -51,6 +61,15 @@ runs:
         INPUT_CONTENT_GUID: ${{ inputs.content-guid }}
         INPUT_DEPLOYMENT_FILE: ${{ inputs.deployment-file }}
 
+    - name: Get API key via OIDC
+      id: oidc
+      if: inputs.connect-api-key == ''
+      shell: bash
+      run: ${{ github.action_path }}/../get-api-key/get-api-key.sh
+      env:
+        CONNECT_SERVER: ${{ steps.config.outputs.connect_server }}
+        OIDC_AUDIENCE: ${{ inputs.audience }}
+
     - name: Generate requirements.txt if needed
       shell: bash
       working-directory: ${{ inputs.path }}
@@ -63,7 +82,7 @@ runs:
       run: ${{ github.action_path }}/scripts/deploy.sh
       env:
         CONNECT_SERVER: ${{ steps.config.outputs.connect_server }}
-        CONNECT_API_KEY: ${{ inputs.connect-api-key }}
+        CONNECT_API_KEY: ${{ inputs.connect-api-key != '' && inputs.connect-api-key || steps.oidc.outputs.api_key }}
         CONTENT_GUID: ${{ steps.config.outputs.content_guid }}
         CONFIG_ENTRYPOINT: ${{ steps.config.outputs.entrypoint }}
         GITHUB_EVENT_NAME: ${{ github.event_name }}

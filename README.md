@@ -8,15 +8,18 @@ Deploy to [Posit Connect](https://posit.co/products/enterprise/connect/) from Gi
 
 ### `get-api-key` - Get Connect API Key via OIDC
 
-Exchanges a GitHub OIDC token for a Posit Connect API key. This allows keyless authentication--no stored secrets required. Requires [OIDC federation](https://docs.posit.co/connect/admin/security/oauth-integrations/#github-actions) to be configured on your Connect server.
+Exchanges a GitHub OIDC token for a short-lived Posit Connect API key via [trusted publishing](https://docs.posit.co/connect/). This allows keyless authentication--no stored secrets required. Requires a content owner to have configured a *trusted publisher* for the target content on your Connect server, naming this GitHub repository.
 
-Use this action before `deploy` or `cleanup-previews` and pass its output as the `connect-api-key` input.
+`deploy` and `cleanup-previews` do this automatically when you don't pass `connect-api-key`, so you usually don't need this action directly. Use it when you want the API key as an output for other steps. Pass its output as the `connect-api-key` input of those actions.
+
+Your workflow must grant `id-token: write` permission for the OIDC token request to succeed.
 
 #### Inputs
 
 | Input | Required | Description |
 |---|---|---|
 | `connect-server` | Yes | Connect server URL (e.g., `https://connect.example.com`) |
+| `audience` | No | Audience to request for the OIDC token. Must match the audience configured on the trusted publisher in Connect. Defaults to `connect`. |
 
 #### Outputs
 
@@ -63,7 +66,8 @@ The content must already exist on Connect. The purpose of this action is to allo
 
 | Input | Required | Description |
 |---|---|---|
-| `connect-api-key` | Yes | Connect API key |
+| `connect-api-key` | No | Connect API key. If omitted, the action obtains a short-lived key via OIDC trusted publishing (requires `id-token: write` and a trusted publisher configured on Connect). |
+| `audience` | No | Audience to request for the OIDC token when `connect-api-key` is omitted. Must match the trusted publisher's audience on Connect. Defaults to `connect`. |
 | `connect-server` | No | Connect server URL. Can be read from `deployment-file` instead. |
 | `content-guid` | No | Content GUID. Can be read from `deployment-file` instead. |
 | `deployment-file` | No | Path to `.posit` deployment TOML file. Auto-detects from `.posit/publish/deployments/` if omitted and `connect-server`/`content-guid` are not set. |
@@ -164,7 +168,8 @@ The example below also includes a `workflow_dispatch` trigger, which can be used
 
 | Input | Required | Description |
 |---|---|---|
-| `connect-api-key` | Yes | Connect API key |
+| `connect-api-key` | No | Connect API key. If omitted, the action obtains a short-lived key via OIDC trusted publishing (requires `id-token: write` and a trusted publisher configured on Connect). |
+| `audience` | No | Audience to request for the OIDC token when `connect-api-key` is omitted. Must match the trusted publisher's audience on Connect. Defaults to `connect`. |
 | `connect-server` | No | Connect server URL. Can be read from `deployment-file` instead. |
 | `content-guid` | No | Content GUID. Can be read from `deployment-file` instead. |
 | `deployment-file` | No | Path to `.posit` deployment TOML file. Auto-detects if omitted. |
@@ -213,7 +218,7 @@ Using both actions together gives you a complete PR preview workflow:
 
 ### With OIDC (recommended)
 
-If your Connect server has OIDC federation configured, you can use keyless authentication instead of storing API key secrets:
+If a content owner has configured a [trusted publisher](https://docs.posit.co/connect/) for your content on Connect, you can use keyless authentication instead of storing API key secrets. Just grant `id-token: write` permission and omit `connect-api-key`--the actions exchange a GitHub OIDC token for a short-lived key automatically.
 
 ```yaml
 # .github/workflows/deploy.yml
@@ -235,16 +240,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Get Connect API key
-        id: connect-auth
-        uses: posit-dev/connect-actions/get-api-key@v1
-        with:
-          connect-server: ${{ vars.CONNECT_URL }}
-
       - name: Deploy to Connect
         uses: posit-dev/connect-actions/deploy@v1
         with:
-          connect-api-key: ${{ steps.connect-auth.outputs.api-key }}
+          connect-server: ${{ vars.CONNECT_URL }}
           github-token: ${{ github.token }}
 ```
 
@@ -272,18 +271,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Get Connect API key
-        id: connect-auth
-        uses: posit-dev/connect-actions/get-api-key@v1
-        with:
-          connect-server: ${{ vars.CONNECT_URL }}
-
       - name: Cleanup preview bundles
         uses: posit-dev/connect-actions/cleanup-previews@v1
         with:
-          connect-api-key: ${{ steps.connect-auth.outputs.api-key }}
+          connect-server: ${{ vars.CONNECT_URL }}
           github-token: ${{ github.token }}
 ```
+
+> The `connect-server` input is shown explicitly here because OIDC needs the server URL up front. You can omit it if it can be resolved from a committed deployment file.
 
 ### With API key secret
 

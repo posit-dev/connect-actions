@@ -1,10 +1,16 @@
 name: Get Connect API Key via OIDC
-description: Exchange a GitHub OIDC token for a Posit Connect API key. Requires OIDC federation to be configured on your Connect server.
+description: Exchange a GitHub OIDC token for a Posit Connect API key. Requires a trusted publisher to be configured for the target content on your Connect server.
 
 inputs:
   connect-server:
     description: Connect server URL (e.g., https://connect.example.com)
     required: true
+  audience:
+    description: >-
+      Audience to request for the GitHub OIDC token. Must match the audience
+      configured on the trusted publisher in Connect (whose default is "connect").
+    required: false
+    default: connect
 
 outputs:
   api-key:
@@ -14,95 +20,10 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Get OIDC token
-      uses: actions/github-script@v7
-      id: oidc
-      env:
-        CONNECT_SERVER: ${{ inputs.connect-server }}
-      with:
-        script: |
-          const serverUrl = process.env.CONNECT_SERVER;
-          // Strip protocol and trailing slash to get the audience
-          const audience = serverUrl.replace(/^https?:\/\//, '').replace(/\/+$/, '');
-          core.info(`Requesting OIDC token with audience: ${audience}`);
-          try {
-            const token = await core.getIDToken(audience);
-            core.setSecret(token);
-            core.setOutput('id_token', token);
-          } catch (error) {
-            if (error.message?.includes('ACTIONS_ID_TOKEN_REQUEST_URL')) {
-              core.setFailed(
-                'Unable to request OIDC token. Your workflow must include "id-token: write" in its permissions. Example:\n\n' +
-                '  permissions:\n' +
-                '    id-token: write\n'
-              );
-            } else {
-              throw error;
-            }
-          }
-
     - name: Exchange OIDC token for Connect API key
       id: exchange
       shell: bash
+      run: ${{ github.action_path }}/get-api-key.sh
       env:
         CONNECT_SERVER: ${{ inputs.connect-server }}
-        ID_TOKEN: ${{ steps.oidc.outputs.id_token }}
-      run: |
-        set -euo pipefail
-
-        # Strip trailing slash from server URL
-        CONNECT_SERVER="${CONNECT_SERVER%/}"
-
-        EXCHANGE_URL="$CONNECT_SERVER/__api__/v1/oauth/integrations/credentials"
-        REQUEST_BODY="grant_type=urn:ietf:params:oauth:grant-type:token-exchange&subject_token_type=urn:ietf:params:oauth:token-type:id_token&subject_token=<REDACTED>&requested_token_type=urn:posit:connect:api-key"
-
-        echo "::group::OIDC token claims"
-        # Decode JWT payload (second dot-separated segment)
-        JWT_PAYLOAD=$(echo "$ID_TOKEN" | cut -d. -f2 | tr '_-' '/+' | base64 -d 2>/dev/null || true)
-        echo "$JWT_PAYLOAD" | jq . 2>/dev/null || echo "$JWT_PAYLOAD"
-        echo "::endgroup::"
-
-        echo "::group::Token exchange request"
-        echo "POST $EXCHANGE_URL"
-        echo "Content-Type: application/x-www-form-urlencoded"
-        echo "Body: $REQUEST_BODY"
-        echo "::endgroup::"
-
-        HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-          "$EXCHANGE_URL" \
-          -H "Content-Type: application/x-www-form-urlencoded" \
-          -d "grant_type=urn:ietf:params:oauth:grant-type:token-exchange" \
-          -d "subject_token_type=urn:ietf:params:oauth:token-type:id_token" \
-          -d "subject_token=$ID_TOKEN" \
-          -d "requested_token_type=urn:posit:connect:api-key")
-
-        # Split response body and status code
-        HTTP_BODY=$(echo "$HTTP_RESPONSE" | sed '$d')
-        HTTP_STATUS=$(echo "$HTTP_RESPONSE" | tail -n1)
-
-        echo "::group::Token exchange response"
-        echo "HTTP status: $HTTP_STATUS"
-        echo "Body: $HTTP_BODY"
-        echo "::endgroup::"
-
-        if [ "$HTTP_STATUS" -eq 200 ]; then
-          API_KEY=$(echo "$HTTP_BODY" | jq -r '.access_token')
-
-          if [ "$API_KEY" = "null" ] || [ -z "$API_KEY" ]; then
-            echo "::error::Token exchange returned 200 but no access_token in response"
-            exit 1
-          fi
-
-          echo "::add-mask::$API_KEY"
-          echo "api_key=$API_KEY" >> "$GITHUB_OUTPUT"
-          echo "Successfully obtained Connect API key via OIDC"
-        elif [ "$HTTP_STATUS" -eq 404 ]; then
-          echo "::error::OIDC token exchange endpoint not found. This Connect server may not support OIDC token exchange (requires Connect 2025.01.0 or later)."
-          exit 1
-        elif [ "$HTTP_STATUS" -eq 401 ] || [ "$HTTP_STATUS" -eq 403 ]; then
-          echo "::error::OIDC token exchange was rejected (HTTP $HTTP_STATUS). Verify that OIDC federation is configured on your Connect server for this GitHub repository."
-          exit 1
-        else
-          echo "::error::Token exchange failed (HTTP $HTTP_STATUS). If OIDC is not configured, provide connect-api-key directly."
-          exit 1
-        fi
+        OIDC_AUDIENCE: ${{ inputs.audience }}
