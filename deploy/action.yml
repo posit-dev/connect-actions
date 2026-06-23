@@ -49,7 +49,7 @@ runs:
 
     - name: Set up rsconnect-python
       shell: bash
-      run: uv tool install "rsconnect @ git+https://github.com/posit-dev/rsconnect-python@aj-more-careful-api-key-validation"
+      run: uv tool install "git+https://github.com/posit-dev/rsconnect-python@aj-more-careful-api-key-validation"
 
     - name: Resolve deployment configuration
       id: config
