@@ -220,6 +220,8 @@ Using both actions together gives you a complete PR preview workflow:
 
 If a content owner has configured a [trusted publisher](https://docs.posit.co/connect/) for your content on Connect, you can use keyless authentication instead of storing API key secrets. Just grant `id-token: write` permission and omit `connect-api-key`--the actions exchange a GitHub OIDC token for a short-lived key automatically.
 
+Trusted publishing requires Connect 2026.07.0 or newer.
+
 ```yaml
 # .github/workflows/deploy.yml
 name: Deploy
@@ -238,10 +240,10 @@ jobs:
       id-token: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Deploy to Connect
-        uses: posit-dev/connect-actions/deploy@v1
+        uses: posit-dev/connect-actions/deploy@main
         with:
           connect-server: ${{ vars.CONNECT_URL }}
           github-token: ${{ github.token }}
@@ -269,10 +271,10 @@ jobs:
       id-token: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Cleanup preview bundles
-        uses: posit-dev/connect-actions/cleanup-previews@v1
+        uses: posit-dev/connect-actions/cleanup-previews@main
         with:
           connect-server: ${{ vars.CONNECT_URL }}
           github-token: ${{ github.token }}
