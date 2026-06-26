@@ -58,7 +58,7 @@ runs:
         OIDC_AUDIENCE: ${{ inputs.audience }}
 
     - name: Find and delete preview bundles
-      uses: actions/github-script@v7
+      uses: actions/github-script@v9
       env:
         CONNECT_SERVER: ${{ steps.config.outputs.connect_server }}
         CONNECT_API_KEY: ${{ inputs.connect-api-key != '' && inputs.connect-api-key || steps.oidc.outputs.api_key }}
