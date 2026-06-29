@@ -59,17 +59,26 @@ jobs:
           echo "prod_guid=$PROD_GUID" >> "$GITHUB_OUTPUT"
           echo "draft_guid=$DRAFT_GUID" >> "$GITHUB_OUTPUT"
 
-      # Generate the manifest at test time so its file list and Python version
-      # match the runner instead of drifting from a checked-in copy. Uses the
-      # same rsconnect source the deploy action installs.
+      # Generate the manifest at test time so its file list doesn't drift from a
+      # checked-in copy. Pin it to a Python version Connect actually has --
+      # Connect requires an exact match, so we ask the server what's installed
+      # rather than guessing. Uses the same rsconnect source the action installs.
       - name: Generate manifest for fixture app
+        env:
+          CONNECT_SERVER: ${{ steps.connect.outputs.CONNECT_SERVER }}
+          CONNECT_API_KEY: ${{ steps.connect.outputs.CONNECT_API_KEY }}
         run: |
           set -euo pipefail
+          PY_VERSION=$(curl -fsS -H "Authorization: Key $CONNECT_API_KEY" \
+            "$CONNECT_SERVER/__api__/v1/server_settings/python" \
+            | jq -r '.installations | map(.version) | max_by(split(".") | map(tonumber))')
+          echo "Connect has Python: $PY_VERSION"
+          [ -n "$PY_VERSION" ] && [ "$PY_VERSION" != "null" ] || { echo "Could not determine Connect Python version"; exit 1; }
           uvx --from "git+https://github.com/posit-dev/rsconnect-python" \
             rsconnect write-manifest fastapi \
             --overwrite \
             --entrypoint app:app \
-            --override-python-version 3.12 \
+            --override-python-version "$PY_VERSION" \
             test/e2e/fastapi-app
 
       # --- Production deploy (draft: false) -------------------------------------
