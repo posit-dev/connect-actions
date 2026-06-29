@@ -13,7 +13,7 @@ Two composite GitHub Actions, each in its own directory:
 - **`deploy/`** -- Deploys content to Connect. Production deploys on push to default branch; draft preview bundles on pull requests (with PR comment containing preview URL).
 - **`cleanup-previews/`** -- Deletes draft bundles from Connect when a PR is closed. Finds bundle IDs by parsing PR comments left by the deploy action.
 
-Each action has an `action.yml` plus a `scripts/` directory containing Bash and Python helper scripts. There is no build system, no tests, no CI, and no linting configuration.
+Each action has an `action.yml` plus a `scripts/` directory of Bash helper scripts. Shared helper logic is migrating into a unit-tested Python package at the repo root (`src/connect_actions/`, see issue #35); config resolution already lives there. There is no linting configuration.
 
 ## Architecture
 
@@ -24,12 +24,12 @@ Both actions resolve Connect server URL and content GUID through the same 3-tier
 2. Specified deployment TOML file (`deployment-file` input)
 3. Auto-detection from `.posit/publish/deployments/` (must find exactly one `.toml`)
 
-This logic lives in each action's `scripts/resolve-config.sh`, which calls `scripts/parse-deployment-toml.py` (run via `uv run --with toml`) to parse TOML files. The deploy version also extracts `entrypoint` from the TOML `[configuration]` section; the cleanup-previews version does not.
+This logic lives in `src/connect_actions/config.py` (`resolve_config()`), invoked by both actions via `uv run --project ${{ github.action_path }}/.. python -m connect_actions.cli resolve-config`. The pure functions parse TOML with stdlib `tomllib` and return a `Config`; the thin `cli.py` layer reads `INPUT_*` env vars and writes `GITHUB_OUTPUT`. Deploy uses the `entrypoint` field from the TOML `[configuration]` section; cleanup-previews ignores it.
 
 ### Deploy flow (`deploy/`)
 
 1. Install `uv` and `rsconnect` CLI
-2. Resolve config (server, GUID, entrypoint) via `resolve-config.sh`
+2. Resolve config (server, GUID, entrypoint) via `connect_actions.cli resolve-config`
 3. Generate `requirements.txt` from `pyproject.toml` if missing (`generate-requirements.sh`)
 4. Query Connect API for `app_mode`, map to `rsconnect deploy` subcommand (shiny, fastapi, flask, dash, streamlit, bokeh)
 5. Run `rsconnect deploy` with `--draft` flag for PRs
@@ -51,5 +51,6 @@ This logic lives in each action's `scripts/resolve-config.sh`, which calls `scri
 ## Development Notes
 
 - All shell scripts use `set -euo pipefail`.
-- `resolve-config.sh` and `parse-deployment-toml.py` are near-duplicates between the two actions (the deploy version extracts an additional `entrypoint` field).
+- The `connect_actions` package targets `python>=3.11` (for stdlib `tomllib`); `uv` provisions the interpreter. Run tests with `uv run pytest`; the `unit` job in `.github/workflows/test.yml` does the same in CI.
+- Keep all logic in pure, importable functions; `cli.py` is the only layer that touches env vars, `GITHUB_OUTPUT`, and subprocesses.
 - The `generate-requirements.sh` script has commented-out `uv.lock` support.
