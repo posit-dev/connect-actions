@@ -1,0 +1,211 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  e2e-deploy:
+    name: End-to-end deploy against a real Connect
+    # Fork PRs can't read secrets.CONNECT_LICENSE, so Connect can't start.
+    # Skip on fork PRs rather than failing; same-repo PRs and pushes still run.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Lets the deploy action comment the preview URL on the draft deploy below.
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+
+      # Spin up a real Connect in Docker and keep it running for the rest of the
+      # job. Outputs CONNECT_SERVER / CONNECT_API_KEY / CONTAINER_ID.
+      - name: Start Connect
+        id: connect
+        uses: posit-dev/with-connect@main
+        with:
+          # The deploy action always passes --metadata, which uses a bundle-upload
+          # API that requires Connect 2025.12.0 or later (rsconnect-python #736).
+          version: 2025.12.0
+          license: ${{ secrets.CONNECT_LICENSE }}
+
+      # The deploy action updates existing content, so the records have to exist
+      # first. A freshly created record has app_mode "unknown", which is why this
+      # test deploys via a manifest.json (the one path that takes a new record
+      # straight to deployed without an app_mode lookup). We create two records
+      # so we can test a production deploy and a draft deploy independently.
+      - name: Create content records
+        id: create
+        env:
+          CONNECT_SERVER: ${{ steps.connect.outputs.CONNECT_SERVER }}
+          CONNECT_API_KEY: ${{ steps.connect.outputs.CONNECT_API_KEY }}
+        run: |
+          set -euo pipefail
+          create() {
+            curl -fsS -X POST \
+              -H "Authorization: Key $CONNECT_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d "{\"name\": \"$1\"}" \
+              "$CONNECT_SERVER/__api__/v1/content" | jq -r '.guid'
+          }
+          PROD_GUID=$(create connect-actions-e2e-prod)
+          DRAFT_GUID=$(create connect-actions-e2e-draft)
+          for guid in "$PROD_GUID" "$DRAFT_GUID"; do
+            [ -n "$guid" ] && [ "$guid" != "null" ] || { echo "Failed to create content record"; exit 1; }
+          done
+          echo "Created prod=$PROD_GUID draft=$DRAFT_GUID"
+          echo "prod_guid=$PROD_GUID" >> "$GITHUB_OUTPUT"
+          echo "draft_guid=$DRAFT_GUID" >> "$GITHUB_OUTPUT"
+
+      # Connect matches a content's Python version exactly, so everything below
+      # must target a version Connect actually has -- not whatever the runner
+      # happens to use. (The manifest pins it explicitly; the non-manifest deploy
+      # would otherwise infer the runner's Python.) Ask the server what's
+      # installed and reuse it everywhere.
+      - name: Resolve a Connect-supported Python version
+        id: pyver
+        env:
+          CONNECT_SERVER: ${{ steps.connect.outputs.CONNECT_SERVER }}
+          CONNECT_API_KEY: ${{ steps.connect.outputs.CONNECT_API_KEY }}
+        run: |
+          set -euo pipefail
+          PY_VERSION=$(curl -fsS -H "Authorization: Key $CONNECT_API_KEY" \
+            "$CONNECT_SERVER/__api__/v1/server_settings/python" \
+            | jq -r '.installations | map(.version) | max_by(split(".") | map(tonumber))')
+          echo "Connect has Python: $PY_VERSION"
+          [ -n "$PY_VERSION" ] && [ "$PY_VERSION" != "null" ] || { echo "Could not determine Connect Python version"; exit 1; }
+          echo "version=$PY_VERSION" >> "$GITHUB_OUTPUT"
+
+      # Generate the manifest at test time so its file list doesn't drift from a
+      # checked-in copy. Uses the same rsconnect source the action installs.
+      - name: Generate manifest for fixture app
+        run: |
+          set -euo pipefail
+          uvx --from "git+https://github.com/posit-dev/rsconnect-python" \
+            rsconnect write-manifest fastapi \
+            --overwrite \
+            --entrypoint app:app \
+            --override-python-version "${{ steps.pyver.outputs.version }}" \
+            test/e2e/fastapi-app
+
+      # --- Production deploy (draft: false) -------------------------------------
+      - name: Deploy (production)
+        id: deploy-prod
+        uses: ./deploy
+        with:
+          connect-server: ${{ steps.connect.outputs.CONNECT_SERVER }}
+          connect-api-key: ${{ steps.connect.outputs.CONNECT_API_KEY }}
+          content-guid: ${{ steps.create.outputs.prod_guid }}
+          path: test/e2e/fastapi-app
+          draft: "false"
+
+      - name: Verify production deploy
+        env:
+          CONNECT_SERVER: ${{ steps.connect.outputs.CONNECT_SERVER }}
+          CONNECT_API_KEY: ${{ steps.connect.outputs.CONNECT_API_KEY }}
+          CONTENT_URL: ${{ steps.deploy-prod.outputs['content-url'] }}
+          GUID: ${{ steps.create.outputs.prod_guid }}
+        run: |
+          set -euo pipefail
+          echo "content-url: $CONTENT_URL"
+          [ -n "$CONTENT_URL" ] || { echo "ERROR: empty content-url"; exit 1; }
+          case "$CONTENT_URL" in
+            */draft/*) echo "ERROR: production deploy produced a draft URL"; exit 1 ;;
+          esac
+          BUNDLES=$(curl -fsS -H "Authorization: Key $CONNECT_API_KEY" \
+            "$CONNECT_SERVER/__api__/v1/content/$GUID/bundles")
+          [ "$(echo "$BUNDLES" | jq 'length')" -ge 1 ] || { echo "ERROR: no bundles created"; exit 1; }
+          echo "Production deploy verified."
+
+      # --- Non-manifest deploy (app_mode lookup) --------------------------------
+      # The prod record now has app_mode "python-fastapi" from the deploy above,
+      # so redeploying it *without* a manifest exercises the other deploy.sh
+      # branch: query Connect for app_mode, map it to an rsconnect subcommand
+      # (fastapi), and deploy. Also hits generate-requirements.sh's
+      # "requirements.txt already exists" branch. Stage a manifest-free copy so
+      # the action doesn't take the manifest path.
+      - name: Stage manifest-free app copy
+        run: |
+          set -euo pipefail
+          rm -rf "$RUNNER_TEMP/plain-app"
+          cp -r test/e2e/fastapi-app "$RUNNER_TEMP/plain-app"
+          rm -f "$RUNNER_TEMP/plain-app/manifest.json"
+
+      - name: Deploy (non-manifest, app_mode lookup)
+        id: deploy-appmode
+        uses: ./deploy
+        with:
+          connect-server: ${{ steps.connect.outputs.CONNECT_SERVER }}
+          connect-api-key: ${{ steps.connect.outputs.CONNECT_API_KEY }}
+          content-guid: ${{ steps.create.outputs.prod_guid }}
+          path: ${{ runner.temp }}/plain-app
+          draft: "false"
+          # No manifest here, so rsconnect builds one from the local env and would
+          # otherwise pin the runner's Python (which Connect lacks). Target a
+          # version Connect has, the way a real project would via .python-version.
+          rsconnect-args: --override-python-version ${{ steps.pyver.outputs.version }}
+
+      - name: Verify non-manifest deploy
+        env:
+          CONNECT_SERVER: ${{ steps.connect.outputs.CONNECT_SERVER }}
+          CONNECT_API_KEY: ${{ steps.connect.outputs.CONNECT_API_KEY }}
+          CONTENT_URL: ${{ steps.deploy-appmode.outputs['content-url'] }}
+          GUID: ${{ steps.create.outputs.prod_guid }}
+        run: |
+          set -euo pipefail
+          echo "content-url: $CONTENT_URL"
+          [ -n "$CONTENT_URL" ] || { echo "ERROR: empty content-url"; exit 1; }
+          case "$CONTENT_URL" in
+            */draft/*) echo "ERROR: non-manifest production deploy produced a draft URL"; exit 1 ;;
+          esac
+          # This is the prod record's second deploy, so it should now have >= 2 bundles.
+          BUNDLES=$(curl -fsS -H "Authorization: Key $CONNECT_API_KEY" \
+            "$CONNECT_SERVER/__api__/v1/content/$GUID/bundles")
+          [ "$(echo "$BUNDLES" | jq 'length')" -ge 2 ] || { echo "ERROR: expected a second bundle on the prod record"; exit 1; }
+          echo "Non-manifest deploy verified."
+
+      # --- Draft deploy (draft: true) -------------------------------------------
+      # The record has no active bundle yet, so rsconnect's default post-deploy
+      # verification (a GET of the content's main URL) has nothing to reach;
+      # --no-verify skips it. The check below is the real assertion.
+      - name: Deploy (draft)
+        id: deploy-draft
+        uses: ./deploy
+        with:
+          connect-server: ${{ steps.connect.outputs.CONNECT_SERVER }}
+          connect-api-key: ${{ steps.connect.outputs.CONNECT_API_KEY }}
+          content-guid: ${{ steps.create.outputs.draft_guid }}
+          path: test/e2e/fastapi-app
+          draft: "true"
+          rsconnect-args: --no-verify
+          github-token: ${{ github.token }}
+
+      - name: Verify draft deploy
+        env:
+          CONNECT_SERVER: ${{ steps.connect.outputs.CONNECT_SERVER }}
+          CONNECT_API_KEY: ${{ steps.connect.outputs.CONNECT_API_KEY }}
+          CONTENT_URL: ${{ steps.deploy-draft.outputs['content-url'] }}
+          GUID: ${{ steps.create.outputs.draft_guid }}
+        run: |
+          set -euo pipefail
+          echo "content-url: $CONTENT_URL"
+          [ -n "$CONTENT_URL" ] || { echo "ERROR: empty content-url"; exit 1; }
+          case "$CONTENT_URL" in
+            */draft/*) ;;
+            *) echo "ERROR: draft deploy did not produce a draft URL"; exit 1 ;;
+          esac
+          BUNDLES=$(curl -fsS -H "Authorization: Key $CONNECT_API_KEY" \
+            "$CONNECT_SERVER/__api__/v1/content/$GUID/bundles")
+          [ "$(echo "$BUNDLES" | jq 'length')" -ge 1 ] || { echo "ERROR: no bundles created"; exit 1; }
+          echo "Draft deploy verified."
+
+      - name: Stop Connect
+        if: always()
+        uses: posit-dev/with-connect@main
+        with:
+          stop: ${{ steps.connect.outputs.CONTAINER_ID }}

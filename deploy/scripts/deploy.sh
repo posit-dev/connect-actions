@@ -1,7 +1,7 @@
 #!/bin/bash
 # Deploy to Posit Connect using rsconnect
 # Required env vars: CONNECT_SERVER, CONNECT_API_KEY, CONTENT_GUID
-# Optional env vars: CONFIG_ENTRYPOINT, GITHUB_EVENT_NAME, RSCONNECT_ARGS
+# Optional env vars: CONFIG_ENTRYPOINT, DRAFT, GITHUB_EVENT_NAME, RSCONNECT_ARGS
 
 set -euo pipefail
 
@@ -47,9 +47,11 @@ else
   fi
 fi
 
-# Deploy with --draft flag for pull requests
+# Deploy as a draft when requested. The DRAFT env var is set from the action's
+# `draft` input, which defaults to true on pull_request events. Draft bundles
+# are uploaded but not activated, so the previously active bundle keeps serving.
 DRAFT_ARGS=()
-if [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ]; then
+if [ "${DRAFT:-}" = "true" ]; then
   DRAFT_ARGS=(--draft)
   URL_PATTERN="Draft content URL:"
 else

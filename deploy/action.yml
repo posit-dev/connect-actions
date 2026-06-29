@@ -28,6 +28,15 @@ inputs:
     description: Path to the application directory within the repository. Defaults to the repository root. All relative paths (deployment-file, manifest.json, requirements.txt, etc.) are resolved relative to this directory.
     required: false
     default: '.'
+  draft:
+    description: >-
+      Deploy as a draft (preview) bundle rather than activating it. Drafts are
+      uploaded to Connect but the previously active bundle keeps serving.
+      Defaults to true on pull_request events and false otherwise. Set
+      explicitly to override (e.g. 'false' to publish from a PR, 'true' to
+      stage a draft from a push).
+    required: false
+    default: ${{ github.event_name == 'pull_request' }}
   github-token:
     description: GitHub token for commenting on PRs (required for pull_request events)
     required: false
@@ -85,6 +94,7 @@ runs:
         CONNECT_API_KEY: ${{ inputs.connect-api-key != '' && inputs.connect-api-key || steps.oidc.outputs.api_key }}
         CONTENT_GUID: ${{ steps.config.outputs.content_guid }}
         CONFIG_ENTRYPOINT: ${{ steps.config.outputs.entrypoint }}
+        DRAFT: ${{ inputs.draft }}
         GITHUB_EVENT_NAME: ${{ github.event_name }}
         GITHUB_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
         GITHUB_ACTOR: ${{ github.actor }}
@@ -97,7 +107,7 @@ runs:
         RSCONNECT_ARGS: ${{ inputs.rsconnect-args }}
 
     - name: Comment preview URL on PR
-      if: github.event_name == 'pull_request'
+      if: github.event_name == 'pull_request' && inputs.draft == 'true'
       uses: actions/github-script@v9
       env:
         PREVIEW_URL: ${{ steps.deploy.outputs.content_url }}
