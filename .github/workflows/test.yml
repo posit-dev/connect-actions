@@ -113,6 +113,49 @@ jobs:
           [ "$(echo "$BUNDLES" | jq 'length')" -ge 1 ] || { echo "ERROR: no bundles created"; exit 1; }
           echo "Production deploy verified."
 
+      # --- Non-manifest deploy (app_mode lookup) --------------------------------
+      # The prod record now has app_mode "python-fastapi" from the deploy above,
+      # so redeploying it *without* a manifest exercises the other deploy.sh
+      # branch: query Connect for app_mode, map it to an rsconnect subcommand
+      # (fastapi), and deploy. Also hits generate-requirements.sh's
+      # "requirements.txt already exists" branch. Stage a manifest-free copy so
+      # the action doesn't take the manifest path.
+      - name: Stage manifest-free app copy
+        run: |
+          set -euo pipefail
+          rm -rf "$RUNNER_TEMP/plain-app"
+          cp -r test/e2e/fastapi-app "$RUNNER_TEMP/plain-app"
+          rm -f "$RUNNER_TEMP/plain-app/manifest.json"
+
+      - name: Deploy (non-manifest, app_mode lookup)
+        id: deploy-appmode
+        uses: ./deploy
+        with:
+          connect-server: ${{ steps.connect.outputs.CONNECT_SERVER }}
+          connect-api-key: ${{ steps.connect.outputs.CONNECT_API_KEY }}
+          content-guid: ${{ steps.create.outputs.prod_guid }}
+          path: ${{ runner.temp }}/plain-app
+          draft: "false"
+
+      - name: Verify non-manifest deploy
+        env:
+          CONNECT_SERVER: ${{ steps.connect.outputs.CONNECT_SERVER }}
+          CONNECT_API_KEY: ${{ steps.connect.outputs.CONNECT_API_KEY }}
+          CONTENT_URL: ${{ steps.deploy-appmode.outputs['content-url'] }}
+          GUID: ${{ steps.create.outputs.prod_guid }}
+        run: |
+          set -euo pipefail
+          echo "content-url: $CONTENT_URL"
+          [ -n "$CONTENT_URL" ] || { echo "ERROR: empty content-url"; exit 1; }
+          case "$CONTENT_URL" in
+            */draft/*) echo "ERROR: non-manifest production deploy produced a draft URL"; exit 1 ;;
+          esac
+          # This is the prod record's second deploy, so it should now have >= 2 bundles.
+          BUNDLES=$(curl -fsS -H "Authorization: Key $CONNECT_API_KEY" \
+            "$CONNECT_SERVER/__api__/v1/content/$GUID/bundles")
+          [ "$(echo "$BUNDLES" | jq 'length')" -ge 2 ] || { echo "ERROR: expected a second bundle on the prod record"; exit 1; }
+          echo "Non-manifest deploy verified."
+
       # --- Draft deploy (draft: true) -------------------------------------------
       # The record has no active bundle yet, so rsconnect's default post-deploy
       # verification (a GET of the content's main URL) has nothing to reach;

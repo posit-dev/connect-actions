@@ -11,10 +11,14 @@ A sanity check that the `deploy` action can actually deploy to a real Connect:
 2. Two content records are created via the Connect API (the `deploy` action
    *updates* existing content, so the records must exist first).
 3. A manifest is generated for the [`fastapi-app`](e2e/fastapi-app) fixture, then the
-   `deploy` action deploys it twice: once with `draft: false` (production) and once
-   with `draft: true` (preview).
+   `deploy` action runs three times:
+   - `draft: false` (production), via the `manifest.json` path;
+   - again on the same record *without* a manifest, so it exercises the other
+     `deploy.sh` branch — query Connect for `app_mode`, map it to an `rsconnect`
+     subcommand, and deploy;
+   - `draft: true` (preview).
 4. The job verifies each deploy set a non-empty `content-url`, that the URL is a
-   draft URL only for the draft deploy, and that a bundle was uploaded.
+   draft URL only for the draft deploy, and that bundles were uploaded.
 
 A freshly created content record has an `app_mode` of `unknown`, so the deploys go
 through the action's `manifest.json` path — the one path that takes a brand-new
