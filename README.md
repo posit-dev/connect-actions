@@ -72,6 +72,7 @@ The content must already exist on Connect. The purpose of this action is to allo
 | `content-guid` | No | Content GUID. Can be read from `deployment-file` instead. |
 | `deployment-file` | No | Path to `.posit` deployment TOML file. Auto-detects from `.posit/publish/deployments/` if omitted and `connect-server`/`content-guid` are not set. |
 | `path` | No | Path to the application directory within the repository. Defaults to the repository root. Use this when your app lives in a subdirectory of your repo. |
+| `draft` | No | Deploy as a draft (preview) bundle instead of activating it. Defaults to `true` on `pull_request` events and `false` otherwise. Set it explicitly to override--e.g. `false` to publish directly from a PR, or `true` to stage a draft from a push. |
 | `github-token` | No | GitHub token for commenting preview URLs on PRs |
 | `rsconnect-args` | No | Additional arguments passed to `rsconnect deploy` |
 

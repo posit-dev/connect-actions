@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      # Lets the deploy action comment the preview URL on pull_request runs.
+      # Lets the deploy action comment the preview URL on the draft deploy below.
       pull-requests: write
     steps:
       - uses: actions/checkout@v6
@@ -29,25 +29,33 @@ jobs:
           version: 2025.09.0
           license: ${{ secrets.CONNECT_LICENSE }}
 
-      # The deploy action updates existing content, so the content record has to
-      # exist first. A freshly created record has app_mode "unknown", which is
-      # why this test deploys via a manifest.json (the one path that takes a new
-      # record straight to deployed without an app_mode lookup).
-      - name: Create content record
+      # The deploy action updates existing content, so the records have to exist
+      # first. A freshly created record has app_mode "unknown", which is why this
+      # test deploys via a manifest.json (the one path that takes a new record
+      # straight to deployed without an app_mode lookup). We create two records
+      # so we can test a production deploy and a draft deploy independently.
+      - name: Create content records
         id: create
         env:
           CONNECT_SERVER: ${{ steps.connect.outputs.CONNECT_SERVER }}
           CONNECT_API_KEY: ${{ steps.connect.outputs.CONNECT_API_KEY }}
         run: |
           set -euo pipefail
-          GUID=$(curl -fsS -X POST \
-            -H "Authorization: Key $CONNECT_API_KEY" \
-            -H "Content-Type: application/json" \
-            -d '{"name": "connect-actions-e2e"}' \
-            "$CONNECT_SERVER/__api__/v1/content" | jq -r '.guid')
-          echo "Created content: $GUID"
-          [ -n "$GUID" ] && [ "$GUID" != "null" ] || { echo "Failed to create content record"; exit 1; }
-          echo "guid=$GUID" >> "$GITHUB_OUTPUT"
+          create() {
+            curl -fsS -X POST \
+              -H "Authorization: Key $CONNECT_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d "{\"name\": \"$1\"}" \
+              "$CONNECT_SERVER/__api__/v1/content" | jq -r '.guid'
+          }
+          PROD_GUID=$(create connect-actions-e2e-prod)
+          DRAFT_GUID=$(create connect-actions-e2e-draft)
+          for guid in "$PROD_GUID" "$DRAFT_GUID"; do
+            [ -n "$guid" ] && [ "$guid" != "null" ] || { echo "Failed to create content record"; exit 1; }
+          done
+          echo "Created prod=$PROD_GUID draft=$DRAFT_GUID"
+          echo "prod_guid=$PROD_GUID" >> "$GITHUB_OUTPUT"
+          echo "draft_guid=$DRAFT_GUID" >> "$GITHUB_OUTPUT"
 
       # Generate the manifest at test time so its file list and Python version
       # match the runner instead of drifting from a checked-in copy. Uses the
@@ -62,40 +70,69 @@ jobs:
             --override-python-version 3.12 \
             test/e2e/fastapi-app
 
-      - name: Deploy with the action
-        id: deploy
+      # --- Production deploy (draft: false) -------------------------------------
+      - name: Deploy (production)
+        id: deploy-prod
         uses: ./deploy
         with:
           connect-server: ${{ steps.connect.outputs.CONNECT_SERVER }}
           connect-api-key: ${{ steps.connect.outputs.CONNECT_API_KEY }}
-          content-guid: ${{ steps.create.outputs.guid }}
+          content-guid: ${{ steps.create.outputs.prod_guid }}
           path: test/e2e/fastapi-app
-          github-token: ${{ github.token }}
-          # On pull_request runs the action deploys a --draft. A brand-new
-          # record has no active bundle yet, so rsconnect's default post-deploy
-          # verification (which fetches the content's main URL) has nothing to
-          # reach; skip it there. The "Verify deployment" step below is the real
-          # assertion. Production (push) runs keep verification on.
-          rsconnect-args: ${{ github.event_name == 'pull_request' && '--no-verify' || '' }}
+          draft: "false"
 
-      - name: Verify deployment
+      - name: Verify production deploy
         env:
           CONNECT_SERVER: ${{ steps.connect.outputs.CONNECT_SERVER }}
           CONNECT_API_KEY: ${{ steps.connect.outputs.CONNECT_API_KEY }}
-          CONTENT_URL: ${{ steps.deploy.outputs['content-url'] }}
-          GUID: ${{ steps.create.outputs.guid }}
+          CONTENT_URL: ${{ steps.deploy-prod.outputs['content-url'] }}
+          GUID: ${{ steps.create.outputs.prod_guid }}
         run: |
           set -euo pipefail
-          echo "content-url output: $CONTENT_URL"
-          [ -n "$CONTENT_URL" ] || { echo "ERROR: deploy action set an empty content-url"; exit 1; }
-
-          # The deploy should have uploaded at least one bundle to the record.
+          echo "content-url: $CONTENT_URL"
+          [ -n "$CONTENT_URL" ] || { echo "ERROR: empty content-url"; exit 1; }
+          case "$CONTENT_URL" in
+            */draft/*) echo "ERROR: production deploy produced a draft URL"; exit 1 ;;
+          esac
           BUNDLES=$(curl -fsS -H "Authorization: Key $CONNECT_API_KEY" \
             "$CONNECT_SERVER/__api__/v1/content/$GUID/bundles")
-          COUNT=$(echo "$BUNDLES" | jq 'length')
-          echo "Bundle count: $COUNT"
-          [ "$COUNT" -ge 1 ] || { echo "ERROR: no bundles were created for $GUID"; exit 1; }
-          echo "Deployment verified."
+          [ "$(echo "$BUNDLES" | jq 'length')" -ge 1 ] || { echo "ERROR: no bundles created"; exit 1; }
+          echo "Production deploy verified."
+
+      # --- Draft deploy (draft: true) -------------------------------------------
+      # The record has no active bundle yet, so rsconnect's default post-deploy
+      # verification (a GET of the content's main URL) has nothing to reach;
+      # --no-verify skips it. The check below is the real assertion.
+      - name: Deploy (draft)
+        id: deploy-draft
+        uses: ./deploy
+        with:
+          connect-server: ${{ steps.connect.outputs.CONNECT_SERVER }}
+          connect-api-key: ${{ steps.connect.outputs.CONNECT_API_KEY }}
+          content-guid: ${{ steps.create.outputs.draft_guid }}
+          path: test/e2e/fastapi-app
+          draft: "true"
+          rsconnect-args: --no-verify
+          github-token: ${{ github.token }}
+
+      - name: Verify draft deploy
+        env:
+          CONNECT_SERVER: ${{ steps.connect.outputs.CONNECT_SERVER }}
+          CONNECT_API_KEY: ${{ steps.connect.outputs.CONNECT_API_KEY }}
+          CONTENT_URL: ${{ steps.deploy-draft.outputs['content-url'] }}
+          GUID: ${{ steps.create.outputs.draft_guid }}
+        run: |
+          set -euo pipefail
+          echo "content-url: $CONTENT_URL"
+          [ -n "$CONTENT_URL" ] || { echo "ERROR: empty content-url"; exit 1; }
+          case "$CONTENT_URL" in
+            */draft/*) ;;
+            *) echo "ERROR: draft deploy did not produce a draft URL"; exit 1 ;;
+          esac
+          BUNDLES=$(curl -fsS -H "Authorization: Key $CONNECT_API_KEY" \
+            "$CONNECT_SERVER/__api__/v1/content/$GUID/bundles")
+          [ "$(echo "$BUNDLES" | jq 'length')" -ge 1 ] || { echo "ERROR: no bundles created"; exit 1; }
+          echo "Draft deploy verified."
 
       - name: Stop Connect
         if: always()
