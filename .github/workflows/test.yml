@@ -1,0 +1,104 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  e2e-deploy:
+    name: End-to-end deploy against a real Connect
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Lets the deploy action comment the preview URL on pull_request runs.
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+
+      # Spin up a real Connect in Docker and keep it running for the rest of the
+      # job. Outputs CONNECT_SERVER / CONNECT_API_KEY / CONTAINER_ID.
+      - name: Start Connect
+        id: connect
+        uses: posit-dev/with-connect@main
+        with:
+          version: 2025.09.0
+          license: ${{ secrets.CONNECT_LICENSE }}
+
+      # The deploy action updates existing content, so the content record has to
+      # exist first. A freshly created record has app_mode "unknown", which is
+      # why this test deploys via a manifest.json (the one path that takes a new
+      # record straight to deployed without an app_mode lookup).
+      - name: Create content record
+        id: create
+        env:
+          CONNECT_SERVER: ${{ steps.connect.outputs.CONNECT_SERVER }}
+          CONNECT_API_KEY: ${{ steps.connect.outputs.CONNECT_API_KEY }}
+        run: |
+          set -euo pipefail
+          GUID=$(curl -fsS -X POST \
+            -H "Authorization: Key $CONNECT_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"name": "connect-actions-e2e"}' \
+            "$CONNECT_SERVER/__api__/v1/content" | jq -r '.guid')
+          echo "Created content: $GUID"
+          [ -n "$GUID" ] && [ "$GUID" != "null" ] || { echo "Failed to create content record"; exit 1; }
+          echo "guid=$GUID" >> "$GITHUB_OUTPUT"
+
+      # Generate the manifest at test time so its file list and Python version
+      # match the runner instead of drifting from a checked-in copy. Uses the
+      # same rsconnect source the deploy action installs.
+      - name: Generate manifest for fixture app
+        run: |
+          set -euo pipefail
+          uvx --from "git+https://github.com/posit-dev/rsconnect-python" \
+            rsconnect write-manifest fastapi \
+            --overwrite \
+            --entrypoint app:app \
+            --override-python-version 3.12 \
+            test/e2e/fastapi-app
+
+      - name: Deploy with the action
+        id: deploy
+        uses: ./deploy
+        with:
+          connect-server: ${{ steps.connect.outputs.CONNECT_SERVER }}
+          connect-api-key: ${{ steps.connect.outputs.CONNECT_API_KEY }}
+          content-guid: ${{ steps.create.outputs.guid }}
+          path: test/e2e/fastapi-app
+          github-token: ${{ github.token }}
+          # On pull_request runs the action deploys a --draft. A brand-new
+          # record has no active bundle yet, so rsconnect's default post-deploy
+          # verification (which fetches the content's main URL) has nothing to
+          # reach; skip it there. The "Verify deployment" step below is the real
+          # assertion. Production (push) runs keep verification on.
+          rsconnect-args: ${{ github.event_name == 'pull_request' && '--no-verify' || '' }}
+
+      - name: Verify deployment
+        env:
+          CONNECT_SERVER: ${{ steps.connect.outputs.CONNECT_SERVER }}
+          CONNECT_API_KEY: ${{ steps.connect.outputs.CONNECT_API_KEY }}
+          CONTENT_URL: ${{ steps.deploy.outputs['content-url'] }}
+          GUID: ${{ steps.create.outputs.guid }}
+        run: |
+          set -euo pipefail
+          echo "content-url output: $CONTENT_URL"
+          [ -n "$CONTENT_URL" ] || { echo "ERROR: deploy action set an empty content-url"; exit 1; }
+
+          # The deploy should have uploaded at least one bundle to the record.
+          BUNDLES=$(curl -fsS -H "Authorization: Key $CONNECT_API_KEY" \
+            "$CONNECT_SERVER/__api__/v1/content/$GUID/bundles")
+          COUNT=$(echo "$BUNDLES" | jq 'length')
+          echo "Bundle count: $COUNT"
+          [ "$COUNT" -ge 1 ] || { echo "ERROR: no bundles were created for $GUID"; exit 1; }
+          echo "Deployment verified."
+
+      - name: Stop Connect
+        if: always()
+        uses: posit-dev/with-connect@main
+        with:
+          stop: ${{ steps.connect.outputs.CONTAINER_ID }}
