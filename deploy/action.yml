@@ -64,7 +64,7 @@ runs:
       id: config
       shell: bash
       working-directory: ${{ inputs.path }}
-      run: ${{ github.action_path }}/scripts/resolve-config.sh
+      run: uv run --project ${{ github.action_path }}/.. python -m connect_actions.cli resolve-config
       env:
         INPUT_CONNECT_SERVER: ${{ inputs.connect-server }}
         INPUT_CONTENT_GUID: ${{ inputs.content-guid }}

@@ -7,6 +7,18 @@ on:
   workflow_dispatch:
 
 jobs:
+  unit:
+    name: Python unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Run pytest
+        run: uv run pytest
+
   e2e-deploy:
     name: End-to-end deploy against a real Connect
     # Fork PRs can't read secrets.CONNECT_LICENSE, so Connect can't start.
