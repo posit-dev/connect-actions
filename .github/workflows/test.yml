@@ -9,6 +9,9 @@ on:
 jobs:
   e2e-deploy:
     name: End-to-end deploy against a real Connect
+    # Fork PRs can't read secrets.CONNECT_LICENSE, so Connect can't start.
+    # Skip on fork PRs rather than failing; same-repo PRs and pushes still run.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
       contents: read
