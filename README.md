@@ -145,7 +145,109 @@ With explicit server/GUID (no deployment file needed):
           github-token: ${{ github.token }}
 ```
 
-If you want to deploy something to multiple Connect servers, or you have multiple apps in your git repository, you can use the `posit-dev/connect-actions/deploy` multiple times. Use the `path` input to point each invocation at the appropriate subdirectory:
+#### Deploying to multiple Connect servers
+
+There are two common ways to involve more than one Connect server, and they
+solve different problems.
+
+**Fan-out: the same content to several servers.** Deploy the same app to
+multiple servers on every event--for example a primary and a mirror, or two
+regional servers. Invoke the action once per server, giving each its own URL and
+GUID:
+
+```yaml
+      - name: Deploy to server A
+        uses: posit-dev/connect-actions/deploy@main
+        with:
+          connect-server: ${{ vars.CONNECT_A_URL }}
+          content-guid: ${{ vars.CONTENT_A_GUID }}
+          github-token: ${{ github.token }}
+
+      - name: Deploy to server B
+        uses: posit-dev/connect-actions/deploy@main
+        with:
+          connect-server: ${{ vars.CONNECT_B_URL }}
+          content-guid: ${{ vars.CONTENT_B_GUID }}
+          github-token: ${{ github.token }}
+```
+
+On a pull request, each invocation deploys its own draft and leaves its own
+preview comment, keyed by the content it deploys. See
+[`cleanup-previews`](#cleanup-previews---cleanup-pr-preview-bundles) for how
+cleanup handles PRs with previews on more than one server.
+
+**Per-environment: pull requests to dev, the default branch to production.** By
+default, pull requests deploy a draft bundle to the *same* content that
+production uses, so reviewers can preview the change without disturbing the live
+version. An alternative is to keep two separate Connect servers--a **dev**
+(staging) server and a **production** server--and deploy pull requests to dev as
+fully activated content, deploying to production only when changes merge to your
+default branch. Switch on `github.event_name` to choose the server, GUID, and (if
+you use key auth) API key for each:
+
+```yaml
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    # Serialize deploys so two runs never race on the same content; a newer
+    # commit cancels an in-flight older one.
+    concurrency:
+      group: connect-deploy-${{ github.event_name == 'pull_request' && 'dev' || 'prod' }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v6
+
+      # Pull requests deploy to the dev server, activated (not a draft).
+      - name: Deploy PR to dev Connect
+        if: github.event_name == 'pull_request'
+        uses: posit-dev/connect-actions/deploy@main
+        with:
+          connect-server: ${{ vars.DEV_CONNECT_URL }}
+          content-guid: ${{ vars.DEV_CONTENT_GUID }}
+          draft: false
+
+      # Pushes to the default branch deploy to the production server.
+      - name: Deploy to production Connect
+        if: github.event_name == 'push'
+        uses: posit-dev/connect-actions/deploy@main
+        with:
+          connect-server: ${{ vars.PROD_CONNECT_URL }}
+          content-guid: ${{ vars.PROD_CONTENT_GUID }}
+```
+
+`draft: false` is what makes the PR deploy replace the active bundle on the dev
+content instead of staging a draft alongside it. Because the deploy isn't a
+draft, the action leaves no preview comment and creates no draft bundle to clean
+up--so this workflow needs neither `pull-requests: write` permission nor the
+[`cleanup-previews`](#cleanup-previews---cleanup-pr-preview-bundles) action.
+
+> **Concurrent pull requests share one dev content.** Every open PR deploys to
+> the same dev GUID, so the dev server always shows whichever PR deployed most
+> recently--a later deploy overwrites an earlier one, and merging or closing a PR
+> does not restore what was there before. This pattern suits a single shared
+> staging environment, not per-PR isolation. If you need each PR previewed
+> independently, use the default draft-preview workflow instead: each PR gets its
+> own draft bundle on the same content, and `cleanup-previews` removes them when
+> the PR closes. The `concurrency` block above only prevents two runs from racing
+> at the same instant; it does not give each PR its own content.
+
+#### Deploying multiple apps from one repository
+
+This is separate from multi-server setups, but uses the same mechanism: if your
+repo contains more than one app, invoke the action once per app and use the
+`path` input to point each invocation at its subdirectory. It composes with
+either multi-server pattern above.
 
 ```yaml
       - name: Deploy app1
@@ -162,10 +264,6 @@ If you want to deploy something to multiple Connect servers, or you have multipl
           github-token: ${{ github.token }}
           path: apps/app2
 ```
-
-On a pull request, each invocation leaves its own preview comment, keyed by the
-content it deploys. See [`cleanup-previews`](#cleanup-previews---cleanup-pr-preview-bundles)
-for how cleanup handles PRs with previews on more than one server.
 
 ---
 
