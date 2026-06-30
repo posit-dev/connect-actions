@@ -60,10 +60,26 @@ runs:
           // every bundle deployed across the PR's pushes, not just the latest.
           const metadataPattern = /<!-- preview-bundles:([\d,]+) -->/;
 
+          // A preview comment dictates which server we send the Connect API key
+          // (or OIDC token exchange) to, so only trust comments left by this
+          // repo's own automation. Otherwise anyone who can comment on the PR
+          // could point cleanup at a host they control and capture the
+          // credentials, or name arbitrary bundles to delete on the real server.
+          // The deploy action posts as github-actions[bot] with the default
+          // token, or as a repo owner/member/collaborator with a custom one.
+          const TRUSTED_ASSOCIATIONS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
+          const isTrusted = (comment) =>
+            comment.user?.login === 'github-actions[bot]' ||
+            TRUSTED_ASSOCIATIONS.has(comment.author_association);
+
           // server -> Map(guid -> Set(bundleId))
           const servers = new Map();
           for (const comment of comments) {
             if (!comment.body.includes('Preview deployed to Connect')) {
+              continue;
+            }
+            if (!isTrusted(comment)) {
+              console.log(`Skipping preview comment ${comment.id}: untrusted author ${comment.user?.login} (${comment.author_association})`);
               continue;
             }
             const urlMatch = comment.body.match(urlPattern);

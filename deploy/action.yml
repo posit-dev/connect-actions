@@ -128,8 +128,14 @@ runs:
           // A PR may have previews on more than one environment, each with its
           // own comment. The content GUID is unique and appears in the preview
           // URL, so match on it to update this environment's comment (not some
-          // other environment's).
-          const existing = comments.find(c => c.body.includes(marker) && c.body.includes(guid));
+          // other environment's). Only consider comments left by this repo's own
+          // automation, so an untrusted commenter can't plant a marker+GUID
+          // comment and hijack the preview bookkeeping that cleanup later trusts.
+          const TRUSTED_ASSOCIATIONS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
+          const isTrusted = (c) =>
+            c.user?.login === 'github-actions[bot]' ||
+            TRUSTED_ASSOCIATIONS.has(c.author_association);
+          const existing = comments.find(c => isTrusted(c) && c.body.includes(marker) && c.body.includes(guid));
 
           // We store all deployed bundle IDs in a hidden HTML comment within
           // the PR comment body. The cleanup-previews action parses this to
