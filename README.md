@@ -94,7 +94,13 @@ Basically, if you deploy your content from Posit Publisher (in VS Code, Positron
 
 #### Requirements generation
 
-If no `requirements.txt` exists in your repo, the action generates one from `pyproject.toml` using `uv pip compile`. If you already have a `requirements.txt`, it is used as-is.
+Connect installs your app's dependencies from a `requirements.txt`. When one isn't present, the action generates it, looking for a dependency source in this order:
+
+1. **`requirements.txt`** -- if it already exists, it is used as-is.
+2. **`uv.lock`** -- exported with `uv export --no-hashes --no-emit-project`, pinning the exact versions from your lockfile.
+3. **`pyproject.toml`** -- resolved at deploy time with `uv pip compile`.
+
+For reproducible deploys, we recommend checking a lockfile into your repo alongside `pyproject.toml`: either a `uv.lock` (run `uv lock`) or a pinned `requirements.txt` (run `uv pip compile pyproject.toml -o requirements.txt`). Without one, the action re-resolves your dependencies from `pyproject.toml` on every deploy, so an upstream release can change what gets deployed. To keep a checked-in lockfile fresh, add a scheduled job or a tool like [Dependabot](https://docs.github.com/en/code-security/dependabot) to open update PRs.
 
 #### Deploying with a `manifest.json`
 

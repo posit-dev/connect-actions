@@ -181,6 +181,58 @@ jobs:
           [ "$(echo "$BUNDLES" | jq 'length')" -ge 2 ] || { echo "ERROR: expected a second bundle on the prod record"; exit 1; }
           echo "Non-manifest deploy verified."
 
+      # --- uv.lock deploy (generate-requirements.sh uv.lock branch) -------------
+      # Stage a copy with a pyproject.toml + uv.lock and no requirements.txt, so
+      # the action exercises generate-requirements.sh's uv.lock branch (export
+      # the lockfile to requirements.txt). Generate the lockfile at test time so
+      # it never drifts from a checked-in copy.
+      - name: Stage uv.lock app copy
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/uvlock-app"
+          rm -rf "$APP"
+          cp -r test/e2e/fastapi-app "$APP"
+          rm -f "$APP/manifest.json" "$APP/requirements.txt"
+          cat > "$APP/pyproject.toml" <<'EOF'
+          [project]
+          name = "connect-actions-e2e-uvlock"
+          version = "0.1.0"
+          requires-python = ">=3.11"
+          dependencies = ["fastapi", "uvicorn"]
+          EOF
+          uv lock --project "$APP"
+
+      - name: Deploy (uv.lock)
+        id: deploy-uvlock
+        uses: ./deploy
+        with:
+          connect-server: ${{ steps.connect.outputs.CONNECT_SERVER }}
+          connect-api-key: ${{ steps.connect.outputs.CONNECT_API_KEY }}
+          content-guid: ${{ steps.create.outputs.prod_guid }}
+          path: ${{ runner.temp }}/uvlock-app
+          draft: "false"
+          # No manifest, so rsconnect would otherwise pin the runner's Python.
+          rsconnect-args: --override-python-version ${{ steps.pyver.outputs.version }}
+
+      - name: Verify uv.lock deploy
+        env:
+          CONNECT_SERVER: ${{ steps.connect.outputs.CONNECT_SERVER }}
+          CONNECT_API_KEY: ${{ steps.connect.outputs.CONNECT_API_KEY }}
+          CONTENT_URL: ${{ steps.deploy-uvlock.outputs['content-url'] }}
+          GUID: ${{ steps.create.outputs.prod_guid }}
+        run: |
+          set -euo pipefail
+          echo "content-url: $CONTENT_URL"
+          [ -n "$CONTENT_URL" ] || { echo "ERROR: empty content-url"; exit 1; }
+          case "$CONTENT_URL" in
+            */draft/*) echo "ERROR: uv.lock production deploy produced a draft URL"; exit 1 ;;
+          esac
+          # Third deploy to the prod record, so it should now have >= 3 bundles.
+          BUNDLES=$(curl -fsS -H "Authorization: Key $CONNECT_API_KEY" \
+            "$CONNECT_SERVER/__api__/v1/content/$GUID/bundles")
+          [ "$(echo "$BUNDLES" | jq 'length')" -ge 3 ] || { echo "ERROR: expected a third bundle on the prod record"; exit 1; }
+          echo "uv.lock deploy verified."
+
       # --- Draft deploy (draft: true) -------------------------------------------
       # The record has no active bundle yet, so rsconnect's default post-deploy
       # verification (a GET of the content's main URL) has nothing to reach;
