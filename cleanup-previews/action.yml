@@ -3,13 +3,18 @@ description: Delete draft bundles from Connect that were deployed for PR preview
 
 inputs:
   connect-server:
-    description: Connect server URL (can be read from deployment-file)
+    description: >-
+      Connect server URL. Only needed to disambiguate when a PR has previews on
+      more than one server (run one cleanup step per server). Otherwise it is
+      inferred from the preview comment.
     required: false
   connect-api-key:
     description: >-
       Connect API key. If omitted, the action exchanges a GitHub OIDC token for
       a short-lived key via trusted publishing, which requires 'id-token: write'
       permission and a trusted publisher configured for this content on Connect.
+      An API key is tied to a single server, so pair it with connect-server when
+      a PR targets more than one.
     required: false
   audience:
     description: >-
@@ -18,16 +23,6 @@ inputs:
       (whose default is "connect").
     required: false
     default: connect
-  content-guid:
-    description: Content GUID for the deployment (can be read from deployment-file)
-    required: false
-  deployment-file:
-    description: Path to .posit deployment TOML file. If not specified and connect-server/content-guid are missing, auto-detects from .posit/publish/deployments/
-    required: false
-  path:
-    description: Path to the application directory within the repository. Defaults to the repository root. Used to locate the deployment TOML file when auto-detecting.
-    required: false
-    default: '.'
   github-token:
     description: GitHub token for reading/commenting on PRs
     required: true
@@ -35,100 +30,183 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-
-    - name: Resolve deployment configuration
-      id: config
-      shell: bash
-      working-directory: ${{ inputs.path }}
-      run: uv run --project ${{ github.action_path }}/.. python -m connect_actions.cli resolve-config
-      env:
-        INPUT_CONNECT_SERVER: ${{ inputs.connect-server }}
-        INPUT_CONTENT_GUID: ${{ inputs.content-guid }}
-        INPUT_DEPLOYMENT_FILE: ${{ inputs.deployment-file }}
-
-    - name: Get API key via OIDC
-      id: oidc
-      if: inputs.connect-api-key == ''
-      shell: bash
-      run: ${{ github.action_path }}/../get-api-key/get-api-key.sh
-      env:
-        CONNECT_SERVER: ${{ steps.config.outputs.connect_server }}
-        OIDC_AUDIENCE: ${{ inputs.audience }}
-
-    - name: Find and delete preview bundles
+    # Read the PR's preview comments and work out which bundles to delete on
+    # which server. The deploy action embeds everything we need in the preview
+    # URL (server + content GUID + bundle id) plus a hidden metadata block that
+    # accumulates every bundle deployed over the PR's life.
+    - name: Resolve preview bundles from PR comments
+      id: resolve
       uses: actions/github-script@v9
       env:
-        CONNECT_SERVER: ${{ steps.config.outputs.connect_server }}
-        CONNECT_API_KEY: ${{ inputs.connect-api-key != '' && inputs.connect-api-key || steps.oidc.outputs.api_key }}
-        CONTENT_GUID: ${{ steps.config.outputs.content_guid }}
+        INPUT_CONNECT_SERVER: ${{ inputs.connect-server }}
       with:
         github-token: ${{ inputs.github-token }}
         script: |
           // Use workflow_dispatch input if provided, otherwise use context
           const prNumber = context.payload.inputs?.pr_number || context.issue.number;
 
-          // Fetch all comments on the PR
           const { data: comments } = await github.rest.issues.listComments({
             owner: context.repo.owner,
             repo: context.repo.repo,
             issue_number: prNumber,
           });
 
-          // Extract bundle IDs only from preview deployment comments
-          // Keep metadataPattern in sync with deploy/action.yml
+          // The preview URL is `${server}/connect/#/apps/${guid}/draft/${bundle}`,
+          // so server, GUID, and the latest bundle id all come straight from it.
+          // The substring before `/connect/` (rather than the URL origin) keeps
+          // Connect instances hosted under a subpath working.
+          const urlPattern = /(https?:\/\/\S+?)\/connect\/#\/apps\/([^/\s]+)\/draft\/(\d+)/;
+          // Keep metadataPattern in sync with deploy/action.yml. It accumulates
+          // every bundle deployed across the PR's pushes, not just the latest.
           const metadataPattern = /<!-- preview-bundles:([\d,]+) -->/;
-          const bundleIds = new Set();
 
+          // A preview comment dictates which server we send the Connect API key
+          // (or OIDC token exchange) to, so only trust comments left by this
+          // repo's own automation. Otherwise anyone who can comment on the PR
+          // could point cleanup at a host they control and capture the
+          // credentials, or name arbitrary bundles to delete on the real server.
+          // The deploy action posts as github-actions[bot] with the default
+          // token, or as a repo owner/member/collaborator with a custom one.
+          const TRUSTED_ASSOCIATIONS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
+          const isTrusted = (comment) =>
+            comment.user?.login === 'github-actions[bot]' ||
+            TRUSTED_ASSOCIATIONS.has(comment.author_association);
+
+          // server -> Map(guid -> Set(bundleId))
+          const servers = new Map();
           for (const comment of comments) {
             if (!comment.body.includes('Preview deployed to Connect')) {
               continue;
             }
+            if (!isTrusted(comment)) {
+              console.log(`Skipping preview comment ${comment.id}: untrusted author ${comment.user?.login} (${comment.author_association})`);
+              continue;
+            }
+            const urlMatch = comment.body.match(urlPattern);
+            if (!urlMatch) {
+              console.log(`Skipping preview comment ${comment.id}: could not parse a Connect preview URL`);
+              continue;
+            }
+            const [, server, guid, urlBundle] = urlMatch;
 
+            const bundles = new Set();
             const metadataMatch = comment.body.match(metadataPattern);
             if (metadataMatch) {
               for (const id of metadataMatch[1].split(',')) {
-                bundleIds.add(id);
+                bundles.add(id);
               }
+            } else {
+              bundles.add(urlBundle);
+            }
+
+            if (!servers.has(server)) {
+              servers.set(server, new Map());
+            }
+            const byGuid = servers.get(server);
+            if (!byGuid.has(guid)) {
+              byGuid.set(guid, new Set());
+            }
+            for (const id of bundles) {
+              byGuid.get(guid).add(id);
             }
           }
 
-          console.log(`Found ${bundleIds.size} preview bundle(s) to delete: ${[...bundleIds].join(', ')}`);
+          if (servers.size === 0) {
+            console.log('No preview deployment comments found; nothing to clean up.');
+            core.setOutput('connect_server', '');
+            core.setOutput('targets', '[]');
+            return;
+          }
 
-          // Delete each bundle using Connect API
+          // Pick the server to clean up in this step. An API key is tied to one
+          // server, so when a PR has previews on several you run one cleanup
+          // step per server and pass connect-server to select it.
+          const inputServer = (process.env.INPUT_CONNECT_SERVER || '').replace(/\/+$/, '');
+          let targetServer;
+          if (inputServer) {
+            targetServer = inputServer;
+            if (!servers.has(targetServer)) {
+              console.log(`No preview comments found for ${targetServer}; nothing to clean up.`);
+              core.setOutput('connect_server', '');
+              core.setOutput('targets', '[]');
+              return;
+            }
+          } else if (servers.size === 1) {
+            targetServer = [...servers.keys()][0];
+          } else {
+            core.setFailed(
+              `This PR has previews on multiple Connect servers:\n` +
+              [...servers.keys()].map(s => `  ${s}`).join('\n') +
+              `\nRun one cleanup step per server, passing connect-server (and ` +
+              `connect-api-key if you are not using OIDC) to select each one.`
+            );
+            return;
+          }
+
+          const targets = [...servers.get(targetServer)].map(([guid, bundles]) => ({
+            guid,
+            bundles: [...bundles],
+          }));
+          console.log(`Cleaning up ${targetServer}: ${JSON.stringify(targets)}`);
+          core.setOutput('connect_server', targetServer);
+          core.setOutput('targets', JSON.stringify(targets));
+
+    - name: Get API key via OIDC
+      id: oidc
+      if: inputs.connect-api-key == '' && steps.resolve.outputs.connect_server != ''
+      shell: bash
+      run: ${{ github.action_path }}/../get-api-key/get-api-key.sh
+      env:
+        CONNECT_SERVER: ${{ steps.resolve.outputs.connect_server }}
+        OIDC_AUDIENCE: ${{ inputs.audience }}
+
+    - name: Delete preview bundles
+      if: steps.resolve.outputs.connect_server != ''
+      uses: actions/github-script@v9
+      env:
+        CONNECT_SERVER: ${{ steps.resolve.outputs.connect_server }}
+        CONNECT_API_KEY: ${{ inputs.connect-api-key != '' && inputs.connect-api-key || steps.oidc.outputs.api_key }}
+        TARGETS: ${{ steps.resolve.outputs.targets }}
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const prNumber = context.payload.inputs?.pr_number || context.issue.number;
           const connectServer = process.env.CONNECT_SERVER;
           const apiKey = process.env.CONNECT_API_KEY;
-          const contentGuid = process.env.CONTENT_GUID;
+          const targets = JSON.parse(process.env.TARGETS);
 
-          for (const bundleId of bundleIds) {
-            try {
-              const response = await fetch(
-                `${connectServer}/__api__/v1/content/${contentGuid}/bundles/${bundleId}`,
-                {
-                  method: 'DELETE',
-                  headers: {
-                    'Authorization': `Key ${apiKey}`,
-                  },
+          const deleted = [];
+          for (const { guid, bundles } of targets) {
+            for (const bundleId of bundles) {
+              try {
+                const response = await fetch(
+                  `${connectServer}/__api__/v1/content/${guid}/bundles/${bundleId}`,
+                  {
+                    method: 'DELETE',
+                    headers: {
+                      'Authorization': `Key ${apiKey}`,
+                    },
+                  }
+                );
+
+                if (response.ok) {
+                  console.log(`Deleted bundle ${bundleId} (content ${guid})`);
+                  deleted.push(bundleId);
+                } else {
+                  const errorText = await response.text();
+                  console.error(`Failed to delete bundle ${bundleId} (content ${guid}): ${response.status} ${errorText}`);
                 }
-              );
-
-              if (response.ok) {
-                console.log(`Deleted bundle ${bundleId}`);
-              } else {
-                const errorText = await response.text();
-                console.error(`Failed to delete bundle ${bundleId}: ${response.status} ${errorText}`);
+              } catch (error) {
+                console.error(`Error deleting bundle ${bundleId} (content ${guid}):`, error);
               }
-            } catch (error) {
-              console.error(`Error deleting bundle ${bundleId}:`, error);
             }
           }
 
-          if (bundleIds.size > 0) {
+          if (deleted.length > 0) {
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: prNumber,
-              body: `Cleaned up ${bundleIds.size} preview bundle(s): ${[...bundleIds].join(', ')}`
+              body: `Cleaned up ${deleted.length} preview bundle(s) on ${connectServer}: ${deleted.join(', ')}`
             });
           }

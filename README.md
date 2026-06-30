@@ -163,6 +163,10 @@ If you want to deploy something to multiple Connect servers, or you have multipl
           path: apps/app2
 ```
 
+On a pull request, each invocation leaves its own preview comment, keyed by the
+content it deploys. See [`cleanup-previews`](#cleanup-previews---cleanup-pr-preview-bundles)
+for how cleanup handles PRs with previews on more than one server.
+
 ---
 
 ### `cleanup-previews` - Cleanup PR Preview Bundles
@@ -175,13 +179,14 @@ The example below also includes a `workflow_dispatch` trigger, which can be used
 
 | Input | Required | Description |
 |---|---|---|
-| `connect-api-key` | No | Connect API key. If omitted, the action obtains a short-lived key via OIDC trusted publishing (requires `id-token: write` and a trusted publisher configured on Connect). |
+| `connect-api-key` | No | Connect API key. If omitted, the action obtains a short-lived key via OIDC trusted publishing (requires `id-token: write` and a trusted publisher configured on Connect). An API key is tied to a single server, so pair it with `connect-server` when a PR targets more than one. |
 | `audience` | No | Audience to request for the OIDC token when `connect-api-key` is omitted. Must match the trusted publisher's audience on Connect. Defaults to `connect`. |
-| `connect-server` | No | Connect server URL. Can be read from `deployment-file` instead. |
-| `content-guid` | No | Content GUID. Can be read from `deployment-file` instead. |
-| `deployment-file` | No | Path to `.posit` deployment TOML file. Auto-detects if omitted. |
-| `path` | No | Path to the application directory within the repository. Defaults to the repository root. Should match the `path` used in the `deploy` action. |
+| `connect-server` | No | Connect server URL. Only needed to disambiguate when a PR has previews on more than one server (run one cleanup step per server). Otherwise it is inferred from the preview comment. |
 | `github-token` | Yes | GitHub token for reading/commenting on PRs |
+
+The server, content GUID, and bundle IDs to delete are read from the preview
+comments the `deploy` action leaves on the PR, so cleanup needs no deployment
+file or content GUID of its own.
 
 #### Example
 
@@ -213,6 +218,36 @@ jobs:
           connect-api-key: ${{ secrets.CONNECT_API_KEY }}
           github-token: ${{ github.token }}
 ```
+
+#### Previews on multiple servers
+
+When a PR has previews on a single server (the common case), one cleanup step
+suffices and you don't need to pass `connect-server` -- it's inferred from the
+preview comment. With OIDC, that means cleanup runs with no Connect arguments at
+all.
+
+If a PR has previews on more than one server, run one cleanup step per server.
+A Connect API key is scoped to one server, so pair each key with its
+`connect-server`:
+
+```yaml
+      - name: Cleanup previews on server A
+        uses: posit-dev/connect-actions/cleanup-previews@main
+        with:
+          connect-server: https://connect-a.example.com
+          connect-api-key: ${{ secrets.CONNECT_A_API_KEY }}
+          github-token: ${{ github.token }}
+
+      - name: Cleanup previews on server B
+        uses: posit-dev/connect-actions/cleanup-previews@main
+        with:
+          connect-server: https://connect-b.example.com
+          connect-api-key: ${{ secrets.CONNECT_B_API_KEY }}
+          github-token: ${{ github.token }}
+```
+
+With OIDC you still need one step per server (each exchanges a token for that
+server), but you only pass `connect-server`, not a key.
 
 ---
 
@@ -283,11 +318,12 @@ jobs:
       - name: Cleanup preview bundles
         uses: posit-dev/connect-actions/cleanup-previews@main
         with:
-          connect-server: ${{ vars.CONNECT_URL }}
           github-token: ${{ github.token }}
 ```
 
-> The `connect-server` input is shown explicitly here because OIDC needs the server URL up front. You can omit it if it can be resolved from a committed deployment file.
+> Cleanup reads the server from the preview comment, so no `connect-server` is
+> needed here. Pass it only when a PR has previews on more than one server (see
+> [Previews on multiple servers](#previews-on-multiple-servers)).
 
 ### With API key secret
 
