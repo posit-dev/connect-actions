@@ -20,8 +20,10 @@ if [ -f "uv.lock" ]; then
   #   lines force pip into hash-checking mode, which the server rejects.
   # --no-emit-project: a packaged project exports itself as a local path
   #   dependency, which Connect cannot install.
+  # --frozen: export exactly the committed lockfile; never re-resolve (which
+  #   would silently deploy newer versions when uv.lock is stale).
   echo "uv.lock found, exporting requirements.txt from uv.lock..."
-  uv export --format requirements-txt --no-hashes --no-emit-project -o requirements.txt
+  uv export --format requirements-txt --no-hashes --no-emit-project --frozen -o requirements.txt
 elif [ -f "pyproject.toml" ]; then
   echo "pyproject.toml found, generating requirements.txt from pyproject.toml..."
   uv pip compile pyproject.toml -o requirements.txt
