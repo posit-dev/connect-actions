@@ -216,6 +216,34 @@ jobs:
           [ "$(echo "$BUNDLES" | jq 'length')" -ge 1 ] || { echo "ERROR: no bundles created"; exit 1; }
           echo "Draft deploy verified."
 
+      # --- Cleanup previews -----------------------------------------------------
+      # The draft deploy above commented its preview URL on this PR. Cleanup reads
+      # that comment, parses the server + GUID + bundle straight from the URL, and
+      # deletes the draft bundle. Only runs on pull_request, where the comment
+      # exists. connect-server is passed to select this run's comment (the PR
+      # accumulates comments from prior runs on other ephemeral servers).
+      - name: Cleanup preview bundles
+        if: github.event_name == 'pull_request'
+        uses: ./cleanup-previews
+        with:
+          connect-server: ${{ steps.connect.outputs.CONNECT_SERVER }}
+          connect-api-key: ${{ steps.connect.outputs.CONNECT_API_KEY }}
+          github-token: ${{ github.token }}
+
+      - name: Verify cleanup
+        if: github.event_name == 'pull_request'
+        env:
+          CONNECT_SERVER: ${{ steps.connect.outputs.CONNECT_SERVER }}
+          CONNECT_API_KEY: ${{ steps.connect.outputs.CONNECT_API_KEY }}
+          GUID: ${{ steps.create.outputs.draft_guid }}
+        run: |
+          set -euo pipefail
+          BUNDLES=$(curl -fsS -H "Authorization: Key $CONNECT_API_KEY" \
+            "$CONNECT_SERVER/__api__/v1/content/$GUID/bundles")
+          COUNT=$(echo "$BUNDLES" | jq 'length')
+          [ "$COUNT" -eq 0 ] || { echo "ERROR: expected 0 bundles after cleanup, found $COUNT"; exit 1; }
+          echo "Cleanup verified: draft bundle deleted."
+
       - name: Stop Connect
         if: always()
         uses: posit-dev/with-connect@main
