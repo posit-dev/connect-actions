@@ -103,7 +103,7 @@ jobs:
             --overwrite \
             --entrypoint app:app \
             --override-python-version "${{ steps.pyver.outputs.version }}" \
-            test/e2e/fastapi-app
+            tests/e2e/fastapi-app
 
       # --- Production deploy (draft: false) -------------------------------------
       - name: Deploy (production)
@@ -113,7 +113,7 @@ jobs:
           connect-server: ${{ steps.connect.outputs.CONNECT_SERVER }}
           connect-api-key: ${{ steps.connect.outputs.CONNECT_API_KEY }}
           content-guid: ${{ steps.create.outputs.prod_guid }}
-          path: test/e2e/fastapi-app
+          path: tests/e2e/fastapi-app
           draft: "false"
 
       - name: Verify production deploy
@@ -145,7 +145,7 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf "$RUNNER_TEMP/plain-app"
-          cp -r test/e2e/fastapi-app "$RUNNER_TEMP/plain-app"
+          cp -r tests/e2e/fastapi-app "$RUNNER_TEMP/plain-app"
           rm -f "$RUNNER_TEMP/plain-app/manifest.json"
 
       - name: Deploy (non-manifest, app_mode lookup)
@@ -191,7 +191,7 @@ jobs:
           set -euo pipefail
           APP="$RUNNER_TEMP/uvlock-app"
           rm -rf "$APP"
-          cp -r test/e2e/fastapi-app "$APP"
+          cp -r tests/e2e/fastapi-app "$APP"
           rm -f "$APP/manifest.json" "$APP/requirements.txt"
           cat > "$APP/pyproject.toml" <<'EOF'
           [project]
@@ -244,7 +244,7 @@ jobs:
           connect-server: ${{ steps.connect.outputs.CONNECT_SERVER }}
           connect-api-key: ${{ steps.connect.outputs.CONNECT_API_KEY }}
           content-guid: ${{ steps.create.outputs.draft_guid }}
-          path: test/e2e/fastapi-app
+          path: tests/e2e/fastapi-app
           draft: "true"
           rsconnect-args: --no-verify
           github-token: ${{ github.token }}

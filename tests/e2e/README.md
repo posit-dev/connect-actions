@@ -1,6 +1,6 @@
 # Tests
 
-End-to-end coverage for the actions, run by [`.github/workflows/test.yml`](../.github/workflows/test.yml).
+End-to-end coverage for the actions, run by [`.github/workflows/test.yml`](../../.github/workflows/test.yml).
 
 ## `e2e-deploy`
 
@@ -10,7 +10,7 @@ A sanity check that the `deploy` action can actually deploy to a real Connect:
    Connect container in start-only mode and exposes its server URL and API key.
 2. Two content records are created via the Connect API (the `deploy` action
    *updates* existing content, so the records must exist first).
-3. A manifest is generated for the [`fastapi-app`](e2e/fastapi-app) fixture, then the
+3. A manifest is generated for the [`fastapi-app`](fastapi-app) fixture, then the
    `deploy` action runs three times:
    - `draft: false` (production), via the `manifest.json` path;
    - again on the same record *without* a manifest, so it exercises the other

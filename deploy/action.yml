@@ -163,7 +163,7 @@ runs:
           // Name the server in the heading so multiple environments' comments
           // are distinguishable.
           const host = new URL(previewUrl).host;
-          const body = `**Preview deployed to Connect** (\`${host}\`): [${previewUrl}](${previewUrl})\n\nDeployed from commit ${shortSha}.\n\n_Preview will be deleted when the PR is closed._\n${metadata}`;
+          const body = `**Preview deployed to Connect** (\`${host}\`): [${previewUrl}](${previewUrl})\n\nDeployed from commit ${shortSha}.\n${metadata}`;
 
           if (existing) {
             await github.rest.issues.updateComment({
