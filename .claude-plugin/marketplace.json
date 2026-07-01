@@ -1,0 +1,11 @@
+{
+  "name": "posit-dev",
+  "owner": { "name": "Posit Software, PBC" },
+  "plugins": [
+    {
+      "name": "connect-actions",
+      "source": ".",
+      "description": "Set up Posit Connect deploy workflows in a GitHub repo."
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "name": "connect-actions",
+  "description": "Set up Posit Connect deploy workflows in a GitHub repo.",
+  "version": "0.1.0",
+  "author": { "name": "Posit Software, PBC" },
+  "homepage": "https://github.com/posit-dev/connect-actions",
+  "repository": "https://github.com/posit-dev/connect-actions"
+}

@@ -18,7 +18,22 @@ There are a few prerequisites to set up before you can use these actions:
 2. Configure auth. If your Connect server is version 2026.07.0 or newer, we recommend using the Trusted Publishing feature, which allows you to publish from this GitHub repository automatically. You can enable this in the "Access" tab of the content settings. If you are not using Trusted Publishing, you will need to get an API key with at least "publisher" privileges from your Connect account and add it as a GitHub Actions secret.
 3. Make sure your requirements files are checked in. For Python content, this can either be a `uv.lock` file or a `requirements.txt`, and if you have neither, one can be generated from a `pyproject.toml` file. (We recommend that you keep both `pyproject.toml` and one of those lockfiles and use [Dependabot](https://docs.github.com/en/code-security/dependabot) to update the lockfile on a schedule so that your content stays up to date and security vulnerabilities are resolved.) For R, use the `rsconnect::writeManifest()` function to generate a `manifest.json` file.  
 
-Then, you can add these actions. There are examples below, and there is (TODO!) an Agent Skill you can use to help add these actions to your GitHub repository. 
+Then, you can add these actions. There are examples below, or you can let an AI agent set them up for you with the bundled Agent Skill.
+
+## Set up with an Agent Skill
+
+This repo ships an [Agent Skill](https://agentskills.io) (`setup-connect-deploy`) that walks a coding agent through adding these workflows to your repository: it checks your prerequisites, reads your `.posit` deployment file (or asks for the server URL and content GUID), asks whether you're using Trusted Publishing or an API key, and writes the `deploy` (and optionally `cleanup-previews`) workflow for you.
+
+Agent Skills are an [open standard](https://agentskills.io/), so any agent that supports them (Claude Code, Codex, Cursor, Gemini CLI, and others) can use it by pointing at [`skills/setup-connect-deploy/`](skills/setup-connect-deploy/SKILL.md) in this repo.
+
+In **Claude Code**, install it as a plugin:
+
+```
+/plugin marketplace add posit-dev/connect-actions
+/plugin install connect-actions@posit-dev
+```
+
+Then ask Claude to "set up Connect deployment for this repo" and it will run the skill.
 
 ## Actions
 
