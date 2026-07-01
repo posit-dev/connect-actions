@@ -69,6 +69,15 @@ what you scaffold matches what will run:
 2. If the app lives in a subdirectory of the repo, note it — you'll pass it as
    the `path:` input in Step 5.
 
+**Important — `path:` narrows auto-detection.** The action resolves the target
+from the `path` directory (its config step runs with that as the working
+directory), so auto-detection only searches `<path>/.posit/publish/deployments/`,
+not the repo root. If you set `path:` to a subdirectory and the deployment TOML
+is *not* under it, auto-detection won't find it: either point `deployment-file`
+at a path reachable from `path`, or pass explicit `connect-server` +
+`content-guid`. When `path` is the repo root (the default), the single-file
+auto-detection above works as described.
+
 ## Step 3 — Choose authentication (the key decision)
 
 Ask the user which auth method to use. Recommend Trusted Publishing when their
@@ -150,7 +159,10 @@ below, then adjust:
   `pull-requests: write` permission, and the `github-token` input.
 - **Target from explicit inputs** (no single deployment file): add
   `connect-server:` and `content-guid:` to `with:`. If a single deployment file
-  was found, omit both — the action auto-detects it.
+  was found *and* `path:` is not set (or points at the directory containing
+  `.posit/`), omit both — the action auto-detects it. If `path:` points
+  elsewhere, don't rely on auto-detection: add `deployment-file:` (reachable
+  from `path`) or the explicit `connect-server`/`content-guid` (see Step 2).
 - **Subdirectory / multiple apps:** add `path:` input(s) as needed.
 - Pin the actions to `@main` (matches the connect-actions README examples).
 
@@ -175,7 +187,7 @@ jobs:
       id-token: write        # remove for API-key auth
       pull-requests: write   # remove if PR previews are disabled
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Deploy to Connect
         uses: posit-dev/connect-actions/deploy@main
@@ -216,7 +228,7 @@ jobs:
       id-token: write        # remove for API-key auth
       pull-requests: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Cleanup preview bundles
         uses: posit-dev/connect-actions/cleanup-previews@main
