@@ -1,73 +1,39 @@
 # connect-actions
 
-Deploy to [Posit Connect](https://posit.co/products/enterprise/connect/) from GitHub Actions.
+Deploy to [Posit Connect](https://posit.co/products/enterprise/connect/) from GitHub Actions. Includes support for deploying draft versions of content on pull requests, git metadata annotations, and trusted publishing without API keys using OIDC.
 
-> Extremely beta! In active development! Please use and try this, and tell us how it goes--but be prepared.
+The purpose of these actions is to allow you to maintain content on Connect using your CI/CD workflow. Once you have deployed the initial version of your content, use these actions to link it to your GitHub repository. These will help you:
+
+* Ensure that the deployed version of your content corresponds to the latest version of the code on your default branch
+* Only deploy if tests pass
+* Make sure that your app runs correctly on Connect, in a draft view, before deploying it for everyone
+
+These actions supersede the [`rstudio/actions/connect-publish`](https://github.com/rstudio/actions/tree/main/connect-publish) action.
+
+## Getting started
+
+There are a few prerequisites to set up before you can use these actions:
+
+1. Deploy your content to Connect for the first time by other means. The `deploy` action here will not create a new content item for you; it will only update an existing one with new code. If you use the Publisher extension for Positron, VS Code, or other Code OSS forks, check in the `.posit/` TOML files it creates---this action can use them.
+2. Configure auth. If your Connect server is version 2026.07.0 or newer, we recommend using the Trusted Publishing feature, which allows you to publish from this GitHub repository automatically. You can enable this in the "Access" tab of the content settings. If you are not using Trusted Publishing, you will need to get an API key with at least "publisher" privileges from your Connect account and add it as a GitHub Actions secret.
+3. Make sure your requirements files are checked in. For Python content, this can either be a `uv.lock` file or a `requirements.txt`, and if you have neither, one can be generated from a `pyproject.toml` file. (We recommend that you keep both `pyproject.toml` and one of those lockfiles and use [Dependabot](https://docs.github.com/en/code-security/dependabot) to update the lockfile on a schedule so that your content stays up to date and security vulnerabilities are resolved.) For R, use the `rsconnect::writeManifest()` function to generate a `manifest.json` file.  
+
+Then, you can add these actions. There are examples below, and there is (TODO!) an Agent Skill you can use to help add these actions to your GitHub repository. 
 
 ## Actions
 
-### `get-api-key` - Get Connect API Key via OIDC
-
-Exchanges a GitHub OIDC token for a short-lived Posit Connect API key via [trusted publishing](https://docs.posit.co/connect/). This allows keyless authentication--no stored secrets required. Requires a content owner to have configured a *trusted publisher* for the target content on your Connect server, naming this GitHub repository.
-
-`deploy` and `cleanup-previews` do this automatically when you don't pass `connect-api-key`, so you usually don't need this action directly. Use it when you want the API key as an output for other steps. Pass its output as the `connect-api-key` input of those actions.
-
-Your workflow must grant `id-token: write` permission for the OIDC token request to succeed.
-
-#### Inputs
-
-| Input | Required | Description |
-|---|---|---|
-| `connect-server` | Yes | Connect server URL (e.g., `https://connect.example.com`) |
-| `audience` | No | Audience to request for the OIDC token. Must match the audience configured on the trusted publisher in Connect. Defaults to `connect`. |
-
-#### Outputs
-
-| Output | Description |
-|---|---|
-| `api-key` | Connect API key obtained via OIDC token exchange |
-
-#### Example
-
-```yaml
-    permissions:
-      contents: read
-      id-token: write
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Get Connect API key
-        id: connect-auth
-        uses: posit-dev/connect-actions/get-api-key@main
-        with:
-          connect-server: ${{ vars.CONNECT_URL }}
-
-      - name: Deploy to Connect
-        uses: posit-dev/connect-actions/deploy@main
-        with:
-          connect-api-key: ${{ steps.connect-auth.outputs.api-key }}
-          github-token: ${{ github.token }}
-```
-
-> Your workflow must include `id-token: write` in its permissions for the OIDC token request to succeed.
-
----
-
 ### `deploy` - Deploy to Posit Connect
 
-Deploys a new version of your content to Connect. On push to the default branch, deploys to production. On pull requests, creates a draft preview bundle and comments the preview URL. To clean up those drafts when the PR closes, add a workflow with the `cleanup-previews` described below.
+The default behavior is that on `push` events, it deploys the content and makes it the active version for all viewers. On pull requests, it creates a draft preview and comments on the PR the preview URL for you to review on Connect. To delete those draft bundles when the PR closes, add a workflow with the `cleanup-previews` action described below.
 
-The content must already exist on Connect. The purpose of this action is to allow you to update it via GitHub Actions so that it is integrated into your CI/CD workflow.
-
-> Currently, only content types supported by the [`rsconnect` CLI](https://github.com/posit-dev/rsconnect-python/) are supported in this action--basically, Python apps. 
+Here are the full list of inputs and outputs; below we describe what exactly is required.
 
 #### Inputs
 
 | Input | Required | Description |
 |---|---|---|
 | `connect-api-key` | No | Connect API key. If omitted, the action obtains a short-lived key via OIDC trusted publishing (requires `id-token: write` and a trusted publisher configured on Connect). |
-| `audience` | No | Audience to request for the OIDC token when `connect-api-key` is omitted. Must match the trusted publisher's audience on Connect. Defaults to `connect`. |
+| `audience` | No | Audience to request for the OIDC token when `connect-api-key` is omitted. Must match the trusted publisher's audience on Connect. Defaults to `connect`. You generally don't want to change this. |
 | `connect-server` | No | Connect server URL. Can be read from `deployment-file` instead. |
 | `content-guid` | No | Content GUID. Can be read from `deployment-file` instead. |
 | `deployment-file` | No | Path to `.posit` deployment TOML file. Auto-detects from `.posit/publish/deployments/` if omitted and `connect-server`/`content-guid` are not set. |
@@ -82,19 +48,19 @@ The content must already exist on Connect. The purpose of this action is to allo
 |---|---|
 | `content-url` | URL of the deployed content |
 
-#### Configuration resolution
+#### Configuration
 
-The action resolves the Connect server URL, content GUID, and entrypoint through this priority order:
+The action requires two things at minimum: the destination to deploy to (Connect server URL and content GUID), and how to authenticate. 
 
-1. **Explicit inputs** - `connect-server` and `content-guid` provided directly
-2. **Deployment file** - parsed from the TOML file specified by `deployment-file`
-3. **Auto-detection** - scans `.posit/publish/deployments/` for a single `.toml` file (errors if zero or multiple are found)
+To identify the destination, you can either provide `connect-server` and `content-guid` directly as arguments, or you can provide a path to the `deployment-file`, the TOML file written out by Posit Publisher. If you omit all three of these, the action will look in the `.posit/publish/deployments/` directory and if there is a single deployment file in there, it will use that. If there are zero deployment files or more than one, you will need to provide the URL and GUID as arguments to the action. 
 
-Basically, if you deploy your content from Posit Publisher (in VS Code, Positron, or other Code OSS fork), commit the TOML files it generates to the repo, and assuming you only have one deployment target, the action will pick up everything it needs from it.
+For authentication, we recommend using Trusted Publishing if your Connect server supports it. You do not need to provide any secrets for this to work, once you have enabled it for your content on your Connect server, but you do need to add `id-token: write` to the `permissions` block of your workflow job. If Trusted Publishing is not an option, you can provide `connect-api-key`, which should point to `${{ secrets.CONNECT_API_KEY }}` or similar---do not enter an API key in your workflow file directly. 
 
-#### Requirements generation
+#### Requirements files
 
-Connect installs your app's dependencies from a `requirements.txt`. When one isn't present, the action generates it, looking for a dependency source in this order:
+If a `manifest.json` exists at the root of your repo, the action deploys it directly using `rsconnect deploy manifest`. In this mode the manifest's declared app type, entrypoint, and dependencies are used as-is.
+
+For Python content, Connect installs your app's dependencies from a `requirements.txt`. When one isn't present, the action generates it, as well as `manifest.json`, looking for a dependency source in this order:
 
 1. **`requirements.txt`** -- if it already exists, it is used as-is.
 2. **`uv.lock`** -- exported with `uv export --no-hashes --no-emit-project --frozen`, pinning the exact versions from your lockfile (the lockfile is used as-is; it is never re-resolved at deploy time).
@@ -102,11 +68,11 @@ Connect installs your app's dependencies from a `requirements.txt`. When one isn
 
 For reproducible deploys, we recommend checking a lockfile into your repo alongside `pyproject.toml`: either a `uv.lock` (run `uv lock`) or a pinned `requirements.txt` (run `uv pip compile pyproject.toml -o requirements.txt`). Without one, the action re-resolves your dependencies from `pyproject.toml` on every deploy, so an upstream release can change what gets deployed. To keep a checked-in lockfile fresh, add a scheduled job or a tool like [Dependabot](https://docs.github.com/en/code-security/dependabot) to open update PRs.
 
-#### Deploying with a `manifest.json`
-
-If a `manifest.json` exists at the root of your repo, the action deploys it directly using `rsconnect deploy manifest`. In this mode the manifest's declared app type, entrypoint, and dependencies are used as-is, so `requirements.txt` is not generated and the app type is not looked up from Connect.
-
 #### Example
+
+Here's the simplest case, where you are using Trusted Publishing, have checked in the Publisher TOML deployment file, and have only one deployment file in your repository. The Connect server URL and content GUID are picked up from the deployment file, and there is no API key secret needed to publish. 
+
+This workflow runs on the `main` branch and on all pull requests that point to `main`. On pull request, a draft deployment is made and a link is posted back to the PR, so that's why we need to pass in `github.token` so that the action can comment. 
 
 ```yaml
 name: CI
@@ -122,20 +88,29 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Deploy to Connect
         uses: posit-dev/connect-actions/deploy@main
         with:
-          connect-api-key: ${{ secrets.CONNECT_API_KEY }}
           github-token: ${{ github.token }}
 ```
 
-With explicit server/GUID (no deployment file needed):
+With explicit server/GUID (no deployment file needed) and an API key in secrets:
 
 ```yaml
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+
       - name: Deploy to Connect
         uses: posit-dev/connect-actions/deploy@main
         with:
@@ -306,23 +281,18 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Cleanup preview bundles
         uses: posit-dev/connect-actions/cleanup-previews@main
         with:
-          connect-api-key: ${{ secrets.CONNECT_API_KEY }}
           github-token: ${{ github.token }}
 ```
 
 #### Previews on multiple servers
-
-When a PR has previews on a single server (the common case), one cleanup step
-suffices and you don't need to pass `connect-server` -- it's inferred from the
-preview comment. With OIDC, that means cleanup runs with no Connect arguments at
-all.
 
 If a PR has previews on more than one server, run one cleanup step per server.
 A Connect API key is scoped to one server, so pair each key with its
@@ -346,141 +316,3 @@ A Connect API key is scoped to one server, so pair each key with its
 
 With OIDC you still need one step per server (each exchanges a token for that
 server), but you only pass `connect-server`, not a key.
-
----
-
-## Full lifecycle example
-
-Using both actions together gives you a complete PR preview workflow:
-
-1. **PR opened/updated** -- `deploy` creates a draft bundle and comments the preview URL
-2. **PR closed/merged** -- `cleanup-previews` deletes the draft bundles
-
-### With OIDC (recommended)
-
-If a content owner has configured a [trusted publisher](https://docs.posit.co/connect/) for your content on Connect, you can use keyless authentication instead of storing API key secrets. Just grant `id-token: write` permission and omit `connect-api-key`--the actions exchange a GitHub OIDC token for a short-lived key automatically.
-
-Trusted publishing requires Connect 2026.07.0 or newer.
-
-```yaml
-# .github/workflows/deploy.yml
-name: Deploy
-
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Deploy to Connect
-        uses: posit-dev/connect-actions/deploy@main
-        with:
-          connect-server: ${{ vars.CONNECT_URL }}
-          github-token: ${{ github.token }}
-```
-
-```yaml
-# .github/workflows/cleanup-previews.yml
-name: Cleanup PR Previews
-
-on:
-  pull_request:
-    types: [closed]
-  workflow_dispatch:
-    inputs:
-      pr_number:
-        description: Pull request number to clean up
-        required: true
-        type: number
-
-jobs:
-  cleanup:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Cleanup preview bundles
-        uses: posit-dev/connect-actions/cleanup-previews@main
-        with:
-          github-token: ${{ github.token }}
-```
-
-> Cleanup reads the server from the preview comment, so no `connect-server` is
-> needed here. Pass it only when a PR has previews on more than one server (see
-> [Previews on multiple servers](#previews-on-multiple-servers)).
-
-### With API key secret
-
-If OIDC is not available, you can use a stored API key secret:
-
-```yaml
-# .github/workflows/deploy.yml
-name: Deploy
-
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Deploy to Connect
-        uses: posit-dev/connect-actions/deploy@v1
-        with:
-          connect-api-key: ${{ secrets.CONNECT_API_KEY }}
-          github-token: ${{ github.token }}
-```
-
-```yaml
-# .github/workflows/cleanup-previews.yml
-name: Cleanup PR Previews
-
-on:
-  pull_request:
-    types: [closed]
-  workflow_dispatch:
-    inputs:
-      pr_number:
-        description: Pull request number to clean up
-        required: true
-        type: number
-
-jobs:
-  cleanup:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Cleanup preview bundles
-        uses: posit-dev/connect-actions/cleanup-previews@v1
-        with:
-          connect-api-key: ${{ secrets.CONNECT_API_KEY }}
-          github-token: ${{ github.token }}
-```
-
-MIT
