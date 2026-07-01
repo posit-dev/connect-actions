@@ -24,7 +24,7 @@ Then, you can add these actions. There are examples below, or you can let an AI 
 
 This repo ships an [Agent Skill](https://agentskills.io) (`setup-connect-deploy`) that walks a coding agent through adding these workflows to your repository: it checks your prerequisites, reads your `.posit` deployment file (or asks for the server URL and content GUID), asks whether you're using Trusted Publishing or an API key, and writes the `deploy` (and optionally `cleanup-previews`) workflow for you.
 
-Agent Skills are an [open standard](https://github.com/anthropics/skills), so any agent that supports them (Claude Code, Codex, Cursor, Gemini CLI, and others) can use it by pointing at [`skills/setup-connect-deploy/`](skills/setup-connect-deploy/SKILL.md) in this repo.
+Agent Skills are an [open standard](https://agentskills.io/), so any agent that supports them (Claude Code, Codex, Cursor, Gemini CLI, and others) can use it by pointing at [`skills/setup-connect-deploy/`](skills/setup-connect-deploy/SKILL.md) in this repo.
 
 In **Claude Code**, install it as a plugin:
 
