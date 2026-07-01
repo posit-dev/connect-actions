@@ -60,7 +60,7 @@ For authentication, we recommend using Trusted Publishing if your Connect server
 
 If a `manifest.json` exists at the root of your repo, the action deploys it directly using `rsconnect deploy manifest`. In this mode the manifest's declared app type, entrypoint, and dependencies are used as-is.
 
-For Python content, Connect installs your app's dependencies from a `requirements.txt`. When one isn't present, the action generates it, as well as `manifest.json`, looking for a dependency source in this order:
+For Python content, Connect installs your app's dependencies from a `requirements.txt`. When one isn't present, the action generates it, looking for a dependency source in this order:
 
 1. **`requirements.txt`** -- if it already exists, it is used as-is.
 2. **`uv.lock`** -- exported with `uv export --no-hashes --no-emit-project --frozen`, pinning the exact versions from your lockfile (the lockfile is used as-is; it is never re-resolved at deploy time).
