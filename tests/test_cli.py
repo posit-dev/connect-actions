@@ -81,7 +81,7 @@ def test_check_deploy_features_old_server_skips_metadata(tmp_path, monkeypatch, 
 
 def test_check_deploy_features_draft_on_old_server_fails(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "github_output"))
-    monkeypatch.setenv("CONNECT_VERSION", "2025.05.0")
+    monkeypatch.setenv("CONNECT_VERSION", "2025.06.0")
     monkeypatch.setenv("DRAFT", "true")
 
     assert main(["check-deploy-features"]) == 1

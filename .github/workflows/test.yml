@@ -6,6 +6,13 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Serialize runs per ref: a new push cancels an in-progress run for the same PR
+# or branch. The e2e legs share one PR's comment stream for their preview /
+# cleanup bookkeeping, so overlapping runs would otherwise fight over it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   unit:
     name: Python unit tests
@@ -20,11 +27,47 @@ jobs:
         run: uv run pytest
 
   e2e-deploy:
-    name: End-to-end deploy against a real Connect
+    name: e2e (Connect ${{ matrix.connect-version }})
     # Fork PRs can't read secrets.CONNECT_LICENSE, so Connect can't start.
     # Skip on fork PRs rather than failing; same-repo PRs and pushes still run.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    strategy:
+      # Run every version even if one fails, so a single version-specific
+      # regression doesn't mask the others.
+      fail-fast: false
+      matrix:
+        # Each version exercises a different slice of the supported range:
+        #   * 2024.12.0 -- older than every version-gated feature. Draft
+        #     previews (>=2025.07.0), git metadata (>=2025.12.0), and OIDC
+        #     trusted publishing (>=2026.07.0) are all unavailable. Asserts the
+        #     baseline still works: a plain API-key production deploy, with the
+        #     draft/cleanup legs skipped (supports-drafts: false).
+        #   * 2025.07.0 -- draft-capable. Runs the full suite; metadata is still
+        #     silently skipped (needs 2025.12.0) but the deploy succeeds.
+        #   * 2025.12.0 -- metadata floor. Full suite, with git metadata.
+        #   * release   -- latest Connect build, to catch breakage early.
+        # The action degrades gracefully where a feature is missing (#34/#49),
+        # so older legs pass without it rather than failing.
+        #
+        # Each leg runs Connect on its own port so its server URL
+        # (http://localhost:<port>) is unique. The legs run in parallel and all
+        # post preview comments to the same PR; the deploy/cleanup bookkeeping
+        # keys off the server URL, so distinct ports keep one leg from picking up
+        # another's comments.
+        include:
+          - connect-version: "2024.12.0"
+            supports-drafts: false
+            port: 3939
+          - connect-version: "2025.07.0"
+            supports-drafts: true
+            port: 3940
+          - connect-version: "2025.12.0"
+            supports-drafts: true
+            port: 3941
+          - connect-version: "release"
+            supports-drafts: true
+            port: 3942
     permissions:
       contents: read
       # Lets the deploy action comment the preview URL on the draft deploy below.
@@ -35,15 +78,58 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
 
+      # The workflow's own steps (create records, verify bundles, ...) talk to
+      # Connect through `posit connect api`, which reads CONNECT_SERVER /
+      # CONNECT_API_KEY from the environment -- no login needed.
+      - name: Set up posit CLI
+        run: uv tool install "git+https://github.com/posit-dev/posit-cli"
+
+      # Delete this leg's own leftover preview/cleanup comments from earlier runs
+      # before deploying. Each run creates fresh content GUIDs (so the deploy
+      # action posts a new comment rather than updating one), and the ephemeral
+      # server is torn down at the end, so those comments would otherwise pile up
+      # on the PR and make each cleanup fire 404 DELETEs against GUIDs that no
+      # longer exist. Scoped to this leg's server URL (localhost:<port>) so
+      # parallel legs never touch each other's comments.
+      - name: Prune stale preview comments
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v9
+        env:
+          SERVER_HOST: localhost:${{ matrix.port }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const host = process.env.SERVER_HOST;
+            // Paginate: a long-lived PR can accumulate more comments than fit on
+            // one page, and the stale ones we need to prune may be on any page.
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+            for (const c of comments) {
+              const mine = c.user?.login === 'github-actions[bot]';
+              const ours = c.body.includes('Preview deployed to Connect') ||
+                c.body.includes('Cleaned up');
+              if (mine && ours && c.body.includes(host)) {
+                await github.rest.issues.deleteComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: c.id,
+                });
+                console.log(`Deleted stale comment ${c.id} for ${host}`);
+              }
+            }
+
       # Spin up a real Connect in Docker and keep it running for the rest of the
       # job. Outputs CONNECT_SERVER / CONNECT_API_KEY / CONTAINER_ID.
       - name: Start Connect
         id: connect
         uses: posit-dev/with-connect@main
         with:
-          # The deploy action always passes --metadata, which uses a bundle-upload
-          # API that requires Connect 2025.12.0 or later (rsconnect-python #736).
-          version: 2025.12.0
+          version: ${{ matrix.connect-version }}
+          port: ${{ matrix.port }}
           license: ${{ secrets.CONNECT_LICENSE }}
 
       # The deploy action updates existing content, so the records have to exist
@@ -59,11 +145,7 @@ jobs:
         run: |
           set -euo pipefail
           create() {
-            curl -fsS -X POST \
-              -H "Authorization: Key $CONNECT_API_KEY" \
-              -H "Content-Type: application/json" \
-              -d "{\"name\": \"$1\"}" \
-              "$CONNECT_SERVER/__api__/v1/content" | jq -r '.guid'
+            posit connect api v1/content -X POST -f name="$1" -q .guid
           }
           PROD_GUID=$(create connect-actions-e2e-prod)
           DRAFT_GUID=$(create connect-actions-e2e-draft)
@@ -86,9 +168,8 @@ jobs:
           CONNECT_API_KEY: ${{ steps.connect.outputs.CONNECT_API_KEY }}
         run: |
           set -euo pipefail
-          PY_VERSION=$(curl -fsS -H "Authorization: Key $CONNECT_API_KEY" \
-            "$CONNECT_SERVER/__api__/v1/server_settings/python" \
-            | jq -r '.installations | map(.version) | max_by(split(".") | map(tonumber))')
+          PY_VERSION=$(posit connect api v1/server_settings/python \
+            -q '.installations | map(.version) | max_by(split(".") | map(tonumber))')
           echo "Connect has Python: $PY_VERSION"
           [ -n "$PY_VERSION" ] && [ "$PY_VERSION" != "null" ] || { echo "Could not determine Connect Python version"; exit 1; }
           echo "version=$PY_VERSION" >> "$GITHUB_OUTPUT"
@@ -129,9 +210,8 @@ jobs:
           case "$CONTENT_URL" in
             */draft/*) echo "ERROR: production deploy produced a draft URL"; exit 1 ;;
           esac
-          BUNDLES=$(curl -fsS -H "Authorization: Key $CONNECT_API_KEY" \
-            "$CONNECT_SERVER/__api__/v1/content/$GUID/bundles")
-          [ "$(echo "$BUNDLES" | jq 'length')" -ge 1 ] || { echo "ERROR: no bundles created"; exit 1; }
+          COUNT=$(posit connect api "v1/content/$GUID/bundles" -q 'length')
+          [ "$COUNT" -ge 1 ] || { echo "ERROR: no bundles created"; exit 1; }
           echo "Production deploy verified."
 
       # --- Non-manifest deploy (app_mode lookup) --------------------------------
@@ -176,9 +256,8 @@ jobs:
             */draft/*) echo "ERROR: non-manifest production deploy produced a draft URL"; exit 1 ;;
           esac
           # This is the prod record's second deploy, so it should now have >= 2 bundles.
-          BUNDLES=$(curl -fsS -H "Authorization: Key $CONNECT_API_KEY" \
-            "$CONNECT_SERVER/__api__/v1/content/$GUID/bundles")
-          [ "$(echo "$BUNDLES" | jq 'length')" -ge 2 ] || { echo "ERROR: expected a second bundle on the prod record"; exit 1; }
+          COUNT=$(posit connect api "v1/content/$GUID/bundles" -q 'length')
+          [ "$COUNT" -ge 2 ] || { echo "ERROR: expected a second bundle on the prod record"; exit 1; }
           echo "Non-manifest deploy verified."
 
       # --- uv.lock deploy (generate-requirements.sh uv.lock branch) -------------
@@ -228,17 +307,17 @@ jobs:
             */draft/*) echo "ERROR: uv.lock production deploy produced a draft URL"; exit 1 ;;
           esac
           # Third deploy to the prod record, so it should now have >= 3 bundles.
-          BUNDLES=$(curl -fsS -H "Authorization: Key $CONNECT_API_KEY" \
-            "$CONNECT_SERVER/__api__/v1/content/$GUID/bundles")
-          [ "$(echo "$BUNDLES" | jq 'length')" -ge 3 ] || { echo "ERROR: expected a third bundle on the prod record"; exit 1; }
+          COUNT=$(posit connect api "v1/content/$GUID/bundles" -q 'length')
+          [ "$COUNT" -ge 3 ] || { echo "ERROR: expected a third bundle on the prod record"; exit 1; }
           echo "uv.lock deploy verified."
 
       # --- Draft deploy (draft: true) -------------------------------------------
-      # The record has no active bundle yet, so rsconnect's default post-deploy
-      # verification (a GET of the content's main URL) has nothing to reach;
-      # --no-verify skips it. The check below is the real assertion.
+      # Draft previews require Connect >= 2025.07.0 (older servers fail fast), so
+      # this and everything downstream (verify, cleanup) is skipped on the older
+      # legs, which only assert the baseline API-key production deploy above.
       - name: Deploy (draft)
         id: deploy-draft
+        if: matrix.supports-drafts
         uses: ./deploy
         with:
           connect-server: ${{ steps.connect.outputs.CONNECT_SERVER }}
@@ -246,10 +325,10 @@ jobs:
           content-guid: ${{ steps.create.outputs.draft_guid }}
           path: tests/e2e/fastapi-app
           draft: "true"
-          rsconnect-args: --no-verify
           github-token: ${{ github.token }}
 
       - name: Verify draft deploy
+        if: matrix.supports-drafts
         env:
           CONNECT_SERVER: ${{ steps.connect.outputs.CONNECT_SERVER }}
           CONNECT_API_KEY: ${{ steps.connect.outputs.CONNECT_API_KEY }}
@@ -263,9 +342,8 @@ jobs:
             */draft/*) ;;
             *) echo "ERROR: draft deploy did not produce a draft URL"; exit 1 ;;
           esac
-          BUNDLES=$(curl -fsS -H "Authorization: Key $CONNECT_API_KEY" \
-            "$CONNECT_SERVER/__api__/v1/content/$GUID/bundles")
-          [ "$(echo "$BUNDLES" | jq 'length')" -ge 1 ] || { echo "ERROR: no bundles created"; exit 1; }
+          COUNT=$(posit connect api "v1/content/$GUID/bundles" -q 'length')
+          [ "$COUNT" -ge 1 ] || { echo "ERROR: no bundles created"; exit 1; }
           echo "Draft deploy verified."
 
       # --- Cleanup previews -----------------------------------------------------
@@ -275,7 +353,7 @@ jobs:
       # exists. connect-server is passed to select this run's comment (the PR
       # accumulates comments from prior runs on other ephemeral servers).
       - name: Cleanup preview bundles
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && matrix.supports-drafts
         uses: ./cleanup-previews
         with:
           connect-server: ${{ steps.connect.outputs.CONNECT_SERVER }}
@@ -283,16 +361,14 @@ jobs:
           github-token: ${{ github.token }}
 
       - name: Verify cleanup
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && matrix.supports-drafts
         env:
           CONNECT_SERVER: ${{ steps.connect.outputs.CONNECT_SERVER }}
           CONNECT_API_KEY: ${{ steps.connect.outputs.CONNECT_API_KEY }}
           GUID: ${{ steps.create.outputs.draft_guid }}
         run: |
           set -euo pipefail
-          BUNDLES=$(curl -fsS -H "Authorization: Key $CONNECT_API_KEY" \
-            "$CONNECT_SERVER/__api__/v1/content/$GUID/bundles")
-          COUNT=$(echo "$BUNDLES" | jq 'length')
+          COUNT=$(posit connect api "v1/content/$GUID/bundles" -q 'length')
           [ "$COUNT" -eq 0 ] || { echo "ERROR: expected 0 bundles after cleanup, found $COUNT"; exit 1; }
           echo "Cleanup verified: draft bundle deleted."
 
