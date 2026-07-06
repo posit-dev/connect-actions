@@ -73,7 +73,7 @@ For authentication, we recommend using Trusted Publishing if your Connect server
 
 #### Requirements files
 
-If a `manifest.json` exists at the root of your repo, the action deploys it directly using `rsconnect deploy manifest`. In this mode the manifest's declared app type, entrypoint, and dependencies are used as-is.
+If a `manifest.json` exists at the root of your repo, the action deploys it directly using `posit connect deploy manifest`. In this mode the manifest's declared app type, entrypoint, and dependencies are used as-is.
 
 For Python content, Connect installs your app's dependencies from a `requirements.txt`. When one isn't present, the action generates it, looking for a dependency source in this order:
 

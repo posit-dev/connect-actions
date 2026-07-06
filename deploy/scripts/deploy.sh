@@ -1,6 +1,8 @@
 #!/bin/bash
-# Deploy to Posit Connect using rsconnect
-# Required env vars: CONNECT_SERVER, CONNECT_API_KEY, CONTENT_GUID
+# Deploy to Posit Connect using the `posit` CLI. Assumes a prior login step has
+# stored the server credential as the default (see scripts/login.sh), so no
+# server URL or API key is passed here.
+# Required env vars: CONTENT_GUID
 # Optional env vars: CONFIG_ENTRYPOINT, DRAFT, GITHUB_EVENT_NAME, RSCONNECT_ARGS
 
 set -euo pipefail
@@ -10,25 +12,21 @@ set -euo pipefail
 # app_mode lookup and ignore CONFIG_ENTRYPOINT.
 ENTRYPOINT_ARGS=()
 if [ -f "manifest.json" ]; then
-  echo "Found manifest.json; deploying with rsconnect deploy manifest"
+  echo "Found manifest.json; deploying with posit connect deploy manifest"
   APP_TYPE="manifest"
   DEPLOY_TARGET="manifest.json"
 else
   DEPLOY_TARGET="."
 
   echo "Fetching app mode from Connect API..."
-  CONTENT_INFO=$(curl -s -H "Authorization: Key $CONNECT_API_KEY" \
-    "$CONNECT_SERVER/__api__/v1/content/$CONTENT_GUID")
-
-  APP_MODE=$(echo "$CONTENT_INFO" | jq -r '.app_mode // empty')
+  APP_MODE=$(posit connect api "v1/content/$CONTENT_GUID" -q '.app_mode // empty')
 
   if [ -z "$APP_MODE" ]; then
-    echo "Error: Could not determine app_mode from Connect API"
-    echo "Response: $CONTENT_INFO"
+    echo "Error: Could not determine app_mode from Connect API for content $CONTENT_GUID"
     exit 1
   fi
 
-  # Map Connect app_mode to rsconnect deploy subcommand
+  # Map Connect app_mode to posit connect deploy subcommand
   case "$APP_MODE" in
     "python-shiny") APP_TYPE="shiny" ;;
     "python-fastapi") APP_TYPE="fastapi" ;;
@@ -93,7 +91,7 @@ else
 fi
 
 # shellcheck disable=SC2086
-rsconnect deploy "$APP_TYPE" "${DRAFT_ARGS[@]}" --app-id "$CONTENT_GUID" "${ENTRYPOINT_ARGS[@]}" "${METADATA_ARGS[@]}" ${RSCONNECT_ARGS:-} "$DEPLOY_TARGET" 2>&1 | tee deploy.log
+posit connect deploy "$APP_TYPE" "${DRAFT_ARGS[@]}" --app-id "$CONTENT_GUID" "${ENTRYPOINT_ARGS[@]}" "${METADATA_ARGS[@]}" ${RSCONNECT_ARGS:-} "$DEPLOY_TARGET" 2>&1 | tee deploy.log
 
 # Extract URL from logs, stripping ANSI color codes
 CONTENT_URL=$(grep "$URL_PATTERN" deploy.log | sed "s/.*$URL_PATTERN //" | sed 's/\x1b\[[0-9;]*m//g')
