@@ -6,6 +6,13 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Serialize runs per ref: a new push cancels an in-progress run for the same PR
+# or branch. The e2e legs share one PR's comment stream for their preview /
+# cleanup bookkeeping, so overlapping runs would otherwise fight over it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   unit:
     name: Python unit tests
@@ -42,15 +49,25 @@ jobs:
         #   * release   -- latest Connect build, to catch breakage early.
         # The action degrades gracefully where a feature is missing (#34/#49),
         # so older legs pass without it rather than failing.
+        #
+        # Each leg runs Connect on its own port so its server URL
+        # (http://localhost:<port>) is unique. The legs run in parallel and all
+        # post preview comments to the same PR; the deploy/cleanup bookkeeping
+        # keys off the server URL, so distinct ports keep one leg from picking up
+        # another's comments.
         include:
           - connect-version: "2024.12.0"
             supports-drafts: false
+            port: 3939
           - connect-version: "2025.07.0"
             supports-drafts: true
+            port: 3940
           - connect-version: "2025.12.0"
             supports-drafts: true
+            port: 3941
           - connect-version: "release"
             supports-drafts: true
+            port: 3942
     permissions:
       contents: read
       # Lets the deploy action comment the preview URL on the draft deploy below.
@@ -67,6 +84,41 @@ jobs:
       - name: Set up posit CLI
         run: uv tool install "git+https://github.com/posit-dev/posit-cli"
 
+      # Delete this leg's own leftover preview/cleanup comments from earlier runs
+      # before deploying. Each run creates fresh content GUIDs (so the deploy
+      # action posts a new comment rather than updating one), and the ephemeral
+      # server is torn down at the end, so those comments would otherwise pile up
+      # on the PR and make each cleanup fire 404 DELETEs against GUIDs that no
+      # longer exist. Scoped to this leg's server URL (localhost:<port>) so
+      # parallel legs never touch each other's comments.
+      - name: Prune stale preview comments
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v9
+        env:
+          SERVER_HOST: localhost:${{ matrix.port }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const host = process.env.SERVER_HOST;
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            for (const c of comments) {
+              const mine = c.user?.login === 'github-actions[bot]';
+              const ours = c.body.includes('Preview deployed to Connect') ||
+                c.body.includes('Cleaned up');
+              if (mine && ours && c.body.includes(host)) {
+                await github.rest.issues.deleteComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: c.id,
+                });
+                console.log(`Deleted stale comment ${c.id} for ${host}`);
+              }
+            }
+
       # Spin up a real Connect in Docker and keep it running for the rest of the
       # job. Outputs CONNECT_SERVER / CONNECT_API_KEY / CONTAINER_ID.
       - name: Start Connect
@@ -74,6 +126,7 @@ jobs:
         uses: posit-dev/with-connect@main
         with:
           version: ${{ matrix.connect-version }}
+          port: ${{ matrix.port }}
           license: ${{ secrets.CONNECT_LICENSE }}
 
       # The deploy action updates existing content, so the records have to exist
