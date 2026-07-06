@@ -78,6 +78,19 @@ runs:
         CONNECT_API_KEY: ${{ inputs.connect-api-key }}
         OIDC_AUDIENCE: ${{ inputs.audience }}
 
+    # Read the Connect version and decide which version-gated features to use.
+    # Fails fast if a draft is requested on a server too old to support drafts;
+    # sets send_metadata so the deploy step skips --metadata on older servers.
+    - name: Check Connect capabilities
+      id: capabilities
+      shell: bash
+      run: |
+        CONNECT_VERSION=$(posit connect api server_settings -q '.version // empty' 2>/dev/null || true)
+        export CONNECT_VERSION
+        uv run --project ${{ github.action_path }}/.. python -m connect_actions.cli check-deploy-features
+      env:
+        DRAFT: ${{ inputs.draft }}
+
     - name: Generate requirements.txt if needed
       shell: bash
       working-directory: ${{ inputs.path }}
@@ -92,6 +105,7 @@ runs:
         CONTENT_GUID: ${{ steps.config.outputs.content_guid }}
         CONFIG_ENTRYPOINT: ${{ steps.config.outputs.entrypoint }}
         DRAFT: ${{ inputs.draft }}
+        SEND_METADATA: ${{ steps.capabilities.outputs.send_metadata }}
         GITHUB_EVENT_NAME: ${{ github.event_name }}
         GITHUB_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
         GITHUB_ACTOR: ${{ github.actor }}

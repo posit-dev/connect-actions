@@ -26,6 +26,11 @@ set -euo pipefail
 # on the default server, so the name only matters for the matching logout step.
 NAME="connect-actions"
 
+# Repo root (this script lives in <root>/scripts/); used to run the Python
+# helper that gates Trusted Publishing on the Connect version.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$SCRIPT_DIR/.."
+
 CONNECT_SERVER="${CONNECT_SERVER:-}"
 CONNECT_SERVER="${CONNECT_SERVER%/}"
 
@@ -54,6 +59,16 @@ or provide connect-api-key directly."
   exit 1
 fi
 
+# Trusted Publishing (OIDC token exchange) requires Connect >= 2026.07.0 with an
+# Enhanced or Advanced license. Read the server version (unauthenticated; this
+# endpoint is public unless the admin hid it) and fail early with a clear
+# message when it's too old. When the version can't be read we stay quiet and
+# let the login attempt below surface its own error.
+CONNECT_VERSION=$(curl -sf "$CONNECT_SERVER/__api__/server_settings" 2>/dev/null \
+  | jq -r '.version // empty' 2>/dev/null || true)
+export CONNECT_VERSION
+uv run --project "$PROJECT_DIR" python -m connect_actions.cli check-trusted-publishing
+
 AUDIENCE="${OIDC_AUDIENCE:-connect}"
 ID_TOKEN=$(curl -sf --get \
   -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
@@ -71,4 +86,7 @@ echo "::add-mask::$ID_TOKEN"
 # token-exchange endpoint, mints the key, validates it, and stores it as the
 # default server credential.
 export CONNECT_IDENTITY_TOKEN="$ID_TOKEN"
-posit connect login --server "$CONNECT_SERVER" --name "$NAME"
+if ! posit connect login --server "$CONNECT_SERVER" --name "$NAME"; then
+  echo "::error::Trusted Publishing (OIDC) login failed. It requires Connect 2026.07.0 or newer with an Enhanced or Advanced license and a trusted publisher configured for this content. If your server doesn't meet these requirements, provide connect-api-key instead."
+  exit 1
+fi

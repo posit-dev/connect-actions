@@ -84,9 +84,11 @@ Ask the user which auth method to use. Recommend Trusted Publishing when their
 Connect server supports it.
 
 **Option A — Trusted Publishing (OIDC), recommended.**
-- Requires Connect **2026.07.0 or newer**, with a trusted publisher configured
-  for this content (on the content's **Access** tab in Connect, tied to this
-  GitHub repo).
+- Requires Connect **2026.07.0 or newer** with an **Enhanced or Advanced
+  license**, and a trusted publisher configured for this content (on the
+  content's **Access** tab in Connect, tied to this GitHub repo). On an older
+  server or lesser license, login fails with a clear error---use Option B
+  instead.
 - No secret is stored in GitHub. The workflow job just needs
   `permissions: id-token: write` so it can request an OIDC token, which the
   action exchanges for a short-lived Connect key.
@@ -132,7 +134,9 @@ Ask: **enable draft previews on pull requests?** (Default: yes.)
   URL, so the job needs `pull-requests: write` and a `github-token` input. Also
   **offer to add the `cleanup-previews` workflow**, which deletes those draft
   bundles when the PR closes (recommended — otherwise draft bundles accumulate
-  on Connect).
+  on Connect). Draft previews require Connect **2025.06.0 or newer**; on older
+  servers the deploy fails with a clear error and the user should choose **No**
+  (or set `draft: false`).
 - **No** → emit a push-only workflow (no `pull_request` trigger, no
   `pull-requests: write`, no `github-token`, no cleanup workflow).
 

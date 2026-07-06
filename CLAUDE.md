@@ -28,19 +28,20 @@ This logic lives in `src/connect_actions/config.py` (`resolve_config()`), invoke
 
 ### Shared login pattern
 
-Both actions authenticate once via `scripts/login.sh`, which logs the `posit` CLI in to the Connect server and stores the credential as the **default** server (rsconnect's server store, a file under `$HOME` that persists across composite steps). Two paths: with a `connect-api-key` it runs `posit connect add --set-default`; without one it fetches a GitHub OIDC token and runs `posit connect login`, which performs the RFC 8693 token exchange and stores the minted key. Downstream `posit connect deploy`/`api` calls therefore carry no server URL or key. Each action ends with an `if: always()` teardown step (`posit connect remove --name connect-actions`) so the credential doesn't outlive the action.
+Both actions authenticate once via `scripts/login.sh`, which logs the `posit` CLI in to the Connect server and stores the credential as the **default** server (rsconnect's server store, a file under `$HOME` that persists across composite steps). Two paths: with a `connect-api-key` it runs `posit connect add --set-default`; without one it fetches a GitHub OIDC token and runs `posit connect login`, which performs the RFC 8693 token exchange and stores the minted key. The OIDC path first reads the (unauthenticated) `server_settings` version and runs `connect_actions.cli check-trusted-publishing`, failing early with a clear message when the server is older than 2026.07.0 (Trusted Publishing also needs an Enhanced/Advanced license, which can't be detected here); a login that fails despite this also prints the requirement. Downstream `posit connect deploy`/`api` calls therefore carry no server URL or key. Each action ends with an `if: always()` teardown step (`posit connect remove --name connect-actions`) so the credential doesn't outlive the action.
 
 ### Deploy flow (`deploy/`)
 
 1. Install `uv` and the `posit` CLI
 2. Resolve config (server, GUID, entrypoint) via `connect_actions.cli resolve-config`
 3. Log in to Connect (`scripts/login.sh`)
-4. Generate `requirements.txt` from `pyproject.toml` if missing (`generate-requirements.sh`)
-5. Query `app_mode` via `posit connect api`, map to `posit connect deploy` subcommand (shiny, fastapi, flask, dash, streamlit, bokeh)
-6. Run `posit connect deploy` with `--draft` flag for PRs
-7. Extract content URL from deploy logs, set as action output
-8. On PRs: comment preview URL via `actions/github-script`
-9. Log out (teardown)
+4. Check Connect capabilities: read the server version (`posit connect api server_settings -q .version`) and run `connect_actions.cli check-deploy-features`, which fails fast if a draft is requested on a server older than 2025.06.0 and sets the `send_metadata` output (false on servers older than 2025.12.0, or when the version can't be read)
+5. Generate `requirements.txt` from `pyproject.toml` if missing (`generate-requirements.sh`)
+6. Query `app_mode` via `posit connect api`, map to `posit connect deploy` subcommand (shiny, fastapi, flask, dash, streamlit, bokeh)
+7. Run `posit connect deploy` with `--draft` flag for PRs, passing `--metadata` only when `send_metadata` is true
+8. Extract content URL from deploy logs, set as action output
+9. On PRs: comment preview URL via `actions/github-script`
+10. Log out (teardown)
 
 ### Cleanup flow (`cleanup-previews/`)
 

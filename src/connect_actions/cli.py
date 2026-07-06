@@ -12,6 +12,7 @@ import os
 import sys
 
 from .config import ConfigError, resolve_config
+from .versions import format_min_version, supports
 
 
 def _write_output(**values: str) -> None:
@@ -46,6 +47,70 @@ def cmd_resolve_config(_args: argparse.Namespace) -> int:
     return 0
 
 
+def _truthy(value: str) -> bool:
+    return value.strip().lower() == "true"
+
+
+def cmd_check_deploy_features(_args: argparse.Namespace) -> int:
+    """Decide which version-gated deploy features to use for this server.
+
+    Reads ``CONNECT_VERSION`` (from ``posit connect api server_settings``) and
+    ``DRAFT``. Fails when a draft is requested but the server is too old, and
+    writes ``send_metadata`` so the deploy step knows whether to pass
+    ``--metadata`` (unsupported metadata would fail the upload, so we skip it).
+    """
+    version = os.environ.get("CONNECT_VERSION", "")
+    draft = _truthy(os.environ.get("DRAFT", ""))
+
+    if not version:
+        print(
+            "::warning::Could not determine the Connect server version. Skipping "
+            "bundle metadata to avoid failing on older servers; draft support is "
+            "not verified."
+        )
+
+    if draft and supports(version, "drafts") is False:
+        min_version = format_min_version("drafts")
+        print(
+            f"::error::Draft (preview) deployments require Connect {min_version} "
+            f"or newer, but this server is running {version}. Set the deploy "
+            "action's `draft: false` input to deploy directly instead of staging "
+            "a preview."
+        )
+        return 1
+
+    send_metadata = supports(version, "metadata") is True
+    if version and not send_metadata:
+        min_version = format_min_version("metadata")
+        print(
+            f"::notice::Connect {version} does not support bundle metadata "
+            f"(requires {min_version} or newer); deploying without git provenance "
+            "metadata."
+        )
+
+    _write_output(send_metadata="true" if send_metadata else "false")
+    return 0
+
+
+def cmd_check_trusted_publishing(_args: argparse.Namespace) -> int:
+    """Fail fast when Trusted Publishing (OIDC) can't work on this server.
+
+    Reads ``CONNECT_VERSION``. When the version is known to be too old, error
+    with guidance to use an API key instead. When it's unknown, stay quiet and
+    let the login attempt proceed (it will surface its own error).
+    """
+    version = os.environ.get("CONNECT_VERSION", "")
+    if supports(version, "trusted-publishing") is False:
+        min_version = format_min_version("trusted-publishing")
+        print(
+            f"::error::Trusted Publishing (OIDC) requires Connect {min_version} "
+            "or newer with an Enhanced or Advanced license, but this server is "
+            f"running {version}. Provide a `connect-api-key` instead."
+        )
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="connect_actions")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -55,6 +120,18 @@ def main(argv: list[str] | None = None) -> int:
         help="Resolve Connect server, content GUID, and entrypoint.",
     )
     resolve.set_defaults(func=cmd_resolve_config)
+
+    deploy_features = subparsers.add_parser(
+        "check-deploy-features",
+        help="Gate draft/metadata deploy features on the Connect version.",
+    )
+    deploy_features.set_defaults(func=cmd_check_deploy_features)
+
+    trusted_publishing = subparsers.add_parser(
+        "check-trusted-publishing",
+        help="Fail early if the Connect version can't support Trusted Publishing.",
+    )
+    trusted_publishing.set_defaults(func=cmd_check_trusted_publishing)
 
     args = parser.parse_args(argv)
     return args.func(args)
