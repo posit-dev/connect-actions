@@ -41,9 +41,7 @@ version-specific regressions and enforce the supported range:
 - **`2024.12.0`** — older than every version-gated feature (draft previews,
   metadata, OIDC). Asserts the baseline still works: a plain API-key production
   deploy. The draft and cleanup legs are skipped (`supports-drafts: false`).
-- **`2025.07.0`** — the floor for working draft previews. (Drafts first appeared
-  in 2025.06.0, but rsconnect verifies a deploy against the draft's preview URL,
-  which doesn't work until 2025.07.0.) Metadata is still silently skipped (needs
+- **`2025.07.0`** — the floor for working draft previews. Metadata is still silently skipped (needs
   2025.12.0) but the deploy succeeds.
 - **`2025.12.0`** — the metadata floor; the full suite runs with git provenance
   metadata.

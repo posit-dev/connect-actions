@@ -256,7 +256,7 @@ jobs:
           echo "uv.lock deploy verified."
 
       # --- Draft deploy (draft: true) -------------------------------------------
-      # Draft previews require Connect >= 2025.06.0 (older servers fail fast), so
+      # Draft previews require Connect >= 2025.07.0 (older servers fail fast), so
       # this and everything downstream (verify, cleanup) is skipped on the older
       # legs, which only assert the baseline API-key production deploy above.
       - name: Deploy (draft)

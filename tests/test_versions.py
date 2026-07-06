@@ -59,8 +59,6 @@ def test_supports_at_and_above_minimum():
 
 
 def test_supports_below_minimum():
-    # 2025.06.0 added draft previews but rsconnect can't verify a deploy against
-    # them until 2025.07.0, so it's below the drafts floor.
     assert supports("2025.06.0", "drafts") is False
     assert supports("2025.05.0", "drafts") is False
     assert supports("2025.06.0", "metadata") is False
