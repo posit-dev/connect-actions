@@ -36,7 +36,7 @@ jobs:
         #     trusted publishing (>=2026.07.0) are all unavailable. Asserts the
         #     baseline still works: a plain API-key production deploy, with the
         #     draft/cleanup legs skipped (supports-drafts: false).
-        #   * 2025.06.0 -- draft floor. Runs the full suite; metadata is still
+        #   * 2025.07.0 -- draft-capable. Runs the full suite; metadata is still
         #     silently skipped (needs 2025.12.0) but the deploy succeeds.
         #   * 2025.12.0 -- metadata floor. Full suite, with git metadata.
         #   * release   -- latest Connect build, to catch breakage early.
@@ -45,7 +45,7 @@ jobs:
         include:
           - connect-version: "2024.12.0"
             supports-drafts: false
-          - connect-version: "2025.06.0"
+          - connect-version: "2025.07.0"
             supports-drafts: true
           - connect-version: "2025.12.0"
             supports-drafts: true
