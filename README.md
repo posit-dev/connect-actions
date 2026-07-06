@@ -15,7 +15,7 @@ These actions supersede the [`rstudio/actions/connect-publish`](https://github.c
 There are a few prerequisites to set up before you can use these actions:
 
 1. Deploy your content to Connect for the first time by other means. The `deploy` action here will not create a new content item for you; it will only update an existing one with new code. If you use the Publisher extension for Positron, VS Code, or other Code OSS forks, check in the `.posit/` TOML files it creates---this action can use them.
-2. Configure auth. If your Connect server is version 2026.07.0 or newer, we recommend using the Trusted Publishing feature, which allows you to publish from this GitHub repository automatically. You can enable this in the "Access" tab of the content settings. If you are not using Trusted Publishing, you will need to get an API key with at least "publisher" privileges from your Connect account and add it as a GitHub Actions secret.
+2. Configure auth. If your Connect server is version 2026.07.0 or newer and has an Enhanced or Advanced license, we recommend using the Trusted Publishing feature, which allows you to publish from this GitHub repository automatically. You can enable this in the "Access" tab of the content settings. If you are not using Trusted Publishing, you will need to get an API key with at least "publisher" privileges from your Connect account and add it as a GitHub Actions secret. See [Connect version requirements](#connect-version-requirements) below.
 3. Make sure your requirements files are checked in. For Python content, this can either be a `uv.lock` file or a `requirements.txt`, and if you have neither, one can be generated from a `pyproject.toml` file. (We recommend that you keep both `pyproject.toml` and one of those lockfiles and use [Dependabot](https://docs.github.com/en/code-security/dependabot) to update the lockfile on a schedule so that your content stays up to date and security vulnerabilities are resolved.) For R, use the `rsconnect::writeManifest()` function to generate a `manifest.json` file.  
 
 Then, you can add these actions. There are examples below, or you can let an AI agent set them up for you with the bundled Agent Skill.
@@ -34,6 +34,24 @@ In **Claude Code**, install it as a plugin:
 ```
 
 Then ask Claude to "set up Connect deployment for this repo" and it will run the skill.
+
+## Connect version requirements
+
+The actions deploy to a broad range of Connect versions, but a few features
+require newer releases. On each deploy, the action reads the server version
+(`posit connect api server_settings`) and adapts:
+
+| Feature | Minimum Connect version | On older servers |
+|---|---|---|
+| Deploying with an API key | broadly supported | — |
+| Trusted Publishing (OIDC, no API key) | **2026.07.0**, plus an **Enhanced or Advanced** license | Login fails with a clear error---provide `connect-api-key` instead |
+| Draft PR previews (`draft: true`, the default on pull requests) | **2025.06.0** | Deploy fails fast with a clear error---set `draft: false` to deploy directly instead of staging a preview |
+| Git provenance metadata (commit, author, branch, PR) | **2025.12.0** | Silently skipped; the deploy still succeeds, just without the metadata |
+
+If your Connect administrator has hidden the server version, the action can't
+confirm support: it skips git metadata (to avoid failing the upload) and does
+not pre-check drafts or Trusted Publishing, letting those attempts surface their
+own errors if the server is too old.
 
 ## Actions
 

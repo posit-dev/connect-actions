@@ -34,9 +34,11 @@ The workflow needs a Posit Connect license file stored as the `CONNECT_LICENSE`
 secret (the file contents, following the `with-connect` convention). Without it the
 Connect container will not start.
 
-Connect is pinned to `2025.12.0`: the deploy action always passes `--metadata`,
-which uses a bundle-upload API that requires Connect 2025.12.0 or later
-(rsconnect-python #736).
+Connect is pinned to `2025.12.0`, the minimum version that supports bundle
+metadata (the `--metadata` upload uses an API that requires Connect 2025.12.0 or
+later). The deploy action reads the server version and
+only sends metadata when it's supported, so this pin exercises the metadata
+path; older pins would exercise the graceful-degradation path instead.
 
 ### Running
 

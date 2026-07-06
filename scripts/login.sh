@@ -71,4 +71,7 @@ echo "::add-mask::$ID_TOKEN"
 # token-exchange endpoint, mints the key, validates it, and stores it as the
 # default server credential.
 export CONNECT_IDENTITY_TOKEN="$ID_TOKEN"
-posit connect login --server "$CONNECT_SERVER" --name "$NAME"
+if ! posit connect login --server "$CONNECT_SERVER" --name "$NAME"; then
+  echo "::error::Trusted Publishing (OIDC) login failed. It requires Connect 2026.07.0 or newer with an Enhanced or Advanced license and a trusted publisher configured for this content. If your server doesn't meet these requirements, provide connect-api-key instead."
+  exit 1
+fi

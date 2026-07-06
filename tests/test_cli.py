@@ -56,3 +56,44 @@ def test_resolve_config_error_exits_nonzero(tmp_path, monkeypatch, capsys):
     assert main(["resolve-config"]) == 1
 
     assert "Error: No .posit/publish/deployments/ directory" in capsys.readouterr().err
+
+
+def test_check_deploy_features_recent_server_sends_metadata(tmp_path, monkeypatch):
+    output_file = tmp_path / "github_output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+    monkeypatch.setenv("CONNECT_VERSION", "2025.12.0")
+    monkeypatch.setenv("DRAFT", "true")
+
+    assert main(["check-deploy-features"]) == 0
+    assert "send_metadata=true" in output_file.read_text()
+
+
+def test_check_deploy_features_old_server_skips_metadata(tmp_path, monkeypatch, capsys):
+    output_file = tmp_path / "github_output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+    monkeypatch.setenv("CONNECT_VERSION", "2025.06.0")
+    monkeypatch.setenv("DRAFT", "false")
+
+    assert main(["check-deploy-features"]) == 0
+    assert "send_metadata=false" in output_file.read_text()
+    assert "does not support bundle metadata" in capsys.readouterr().out
+
+
+def test_check_deploy_features_draft_on_old_server_fails(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "github_output"))
+    monkeypatch.setenv("CONNECT_VERSION", "2025.05.0")
+    monkeypatch.setenv("DRAFT", "true")
+
+    assert main(["check-deploy-features"]) == 1
+    assert "Draft (preview) deployments require Connect" in capsys.readouterr().out
+
+
+def test_check_deploy_features_unknown_version_skips_metadata(tmp_path, monkeypatch, capsys):
+    output_file = tmp_path / "github_output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+    monkeypatch.setenv("CONNECT_VERSION", "")
+    monkeypatch.setenv("DRAFT", "true")  # unknown version does not block drafts
+
+    assert main(["check-deploy-features"]) == 0
+    assert "send_metadata=false" in output_file.read_text()
+    assert "Could not determine the Connect server version" in capsys.readouterr().out
