@@ -92,25 +92,6 @@ def cmd_check_deploy_features(_args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_check_trusted_publishing(_args: argparse.Namespace) -> int:
-    """Fail fast when Trusted Publishing (OIDC) can't work on this server.
-
-    Reads ``CONNECT_VERSION``. When the version is known to be too old, error
-    with guidance to use an API key instead. When it's unknown, stay quiet and
-    let the login attempt proceed (it will surface its own error).
-    """
-    version = os.environ.get("CONNECT_VERSION", "")
-    if supports(version, "trusted-publishing") is False:
-        min_version = format_min_version("trusted-publishing")
-        print(
-            f"::error::Trusted Publishing (OIDC) requires Connect {min_version} "
-            "or newer with an Enhanced or Advanced license, but this server is "
-            f"running {version}. Provide a `connect-api-key` instead."
-        )
-        return 1
-    return 0
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="connect_actions")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -126,12 +107,6 @@ def main(argv: list[str] | None = None) -> int:
         help="Gate draft/metadata deploy features on the Connect version.",
     )
     deploy_features.set_defaults(func=cmd_check_deploy_features)
-
-    trusted_publishing = subparsers.add_parser(
-        "check-trusted-publishing",
-        help="Fail early if the Connect version can't support Trusted Publishing.",
-    )
-    trusted_publishing.set_defaults(func=cmd_check_trusted_publishing)
 
     args = parser.parse_args(argv)
     return args.func(args)

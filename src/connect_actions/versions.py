@@ -27,9 +27,12 @@ FEATURE_MIN_VERSIONS: dict[str, tuple[int, int, int]] = {
     # Bundle metadata upload (`--metadata`), via rsconnect's multipart API.
     # https://github.com/posit-dev/rsconnect-python/pull/736
     "metadata": (2025, 12, 0),
-    # Trusted Publishing (OIDC token exchange). Also requires an Enhanced or
-    # Advanced license, which we can't detect here.
-    "trusted-publishing": (2026, 7, 0),
+    # Note: Trusted Publishing (OIDC) also has a minimum version (2026.07.0) and
+    # an Enhanced/Advanced license requirement, but we don't gate on it here --
+    # `posit connect login` is the authoritative check (it discovers the
+    # token-exchange endpoint and would also catch the license and
+    # trusted-publisher configuration), and login.sh reports a clear error when
+    # it fails.
 }
 
 

@@ -97,19 +97,3 @@ def test_check_deploy_features_unknown_version_skips_metadata(tmp_path, monkeypa
     assert main(["check-deploy-features"]) == 0
     assert "send_metadata=false" in output_file.read_text()
     assert "Could not determine the Connect server version" in capsys.readouterr().out
-
-
-def test_check_trusted_publishing_recent_server_ok(monkeypatch):
-    monkeypatch.setenv("CONNECT_VERSION", "2026.07.0")
-    assert main(["check-trusted-publishing"]) == 0
-
-
-def test_check_trusted_publishing_old_server_fails(monkeypatch, capsys):
-    monkeypatch.setenv("CONNECT_VERSION", "2025.12.0")
-    assert main(["check-trusted-publishing"]) == 1
-    assert "Trusted Publishing (OIDC) requires Connect" in capsys.readouterr().out
-
-
-def test_check_trusted_publishing_unknown_version_proceeds(monkeypatch):
-    monkeypatch.setenv("CONNECT_VERSION", "")
-    assert main(["check-trusted-publishing"]) == 0
