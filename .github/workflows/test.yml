@@ -259,9 +259,9 @@ jobs:
       # Draft previews require Connect >= 2025.06.0 (older servers fail fast), so
       # this and everything downstream (verify, cleanup) is skipped on the older
       # legs, which only assert the baseline API-key production deploy above.
-      # The record has no active bundle yet, so rsconnect's default post-deploy
-      # verification (a GET of the content's main URL) has nothing to reach;
-      # --no-verify skips it. The check below is the real assertion.
+      # rsconnect verifies the draft against its own preview URL (not the
+      # not-yet-served main URL), so verification is left on to confirm the app
+      # actually started.
       - name: Deploy (draft)
         id: deploy-draft
         if: matrix.supports-drafts
@@ -272,7 +272,6 @@ jobs:
           content-guid: ${{ steps.create.outputs.draft_guid }}
           path: tests/e2e/fastapi-app
           draft: "true"
-          rsconnect-args: --no-verify
           github-token: ${{ github.token }}
 
       - name: Verify draft deploy
