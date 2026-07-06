@@ -14,8 +14,8 @@ A sanity check that the `deploy` action can actually deploy to a real Connect:
    `deploy` action runs three times:
    - `draft: false` (production), via the `manifest.json` path;
    - again on the same record *without* a manifest, so it exercises the other
-     `deploy.sh` branch — query Connect for `app_mode`, map it to an `rsconnect`
-     subcommand, and deploy;
+     `deploy.sh` branch — query Connect for `app_mode` (`posit connect api`), map
+     it to a `posit connect deploy` subcommand, and deploy;
    - `draft: true` (preview).
 4. The job verifies each deploy set a non-empty `content-url`, that the URL is a
    draft URL only for the draft deploy, and that bundles were uploaded.

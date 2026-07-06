@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-GitHub Actions monorepo (`posit-dev/connect-actions`) providing composite actions for deploying Python applications to [Posit Connect](https://posit.co/products/enterprise/connect/) from GitHub Actions. Currently in early beta; only Python app types supported via the `rsconnect` CLI.
+GitHub Actions monorepo (`posit-dev/connect-actions`) providing composite actions for deploying Python applications to [Posit Connect](https://posit.co/products/enterprise/connect/) from GitHub Actions. Currently in early beta; only Python app types supported. All Connect interaction goes through the [`posit` CLI](https://github.com/posit-dev/posit-cli), which mounts the full `rsconnect-python` command set under `posit connect` and adds a `gh api`-style `posit connect api` raw REST client.
 
 ## Repository Structure
 
@@ -13,7 +13,7 @@ Two composite GitHub Actions, each in its own directory:
 - **`deploy/`** -- Deploys content to Connect. Production deploys on push to default branch; draft preview bundles on pull requests (with PR comment containing preview URL).
 - **`cleanup-previews/`** -- Deletes draft bundles from Connect when a PR is closed. Finds bundle IDs by parsing PR comments left by the deploy action.
 
-Each action has an `action.yml` plus a `scripts/` directory of Bash helper scripts. Shared helper logic is migrating into a unit-tested Python package at the repo root (`src/connect_actions/`, see issue #35); config resolution already lives there. There is no linting configuration.
+Each action has an `action.yml`; `deploy/` also has a `scripts/` directory of Bash helpers. Shared Bash helpers live in the repo-root `scripts/` directory (currently `login.sh`, used by both actions). Shared helper logic is migrating into a unit-tested Python package at the repo root (`src/connect_actions/`, see issue #35); config resolution already lives there. There is no linting configuration.
 
 ## Architecture
 
@@ -26,27 +26,37 @@ Both actions resolve Connect server URL and content GUID through the same 3-tier
 
 This logic lives in `src/connect_actions/config.py` (`resolve_config()`), invoked by both actions via `uv run --project ${{ github.action_path }}/.. python -m connect_actions.cli resolve-config`. The pure functions parse TOML with stdlib `tomllib` and return a `Config`; the thin `cli.py` layer reads `INPUT_*` env vars and writes `GITHUB_OUTPUT`. Deploy uses the `entrypoint` field from the TOML `[configuration]` section; cleanup-previews ignores it.
 
+### Shared login pattern
+
+Both actions authenticate once via `scripts/login.sh`, which logs the `posit` CLI in to the Connect server and stores the credential as the **default** server (rsconnect's server store, a file under `$HOME` that persists across composite steps). Two paths: with a `connect-api-key` it runs `posit connect add --set-default`; without one it fetches a GitHub OIDC token and runs `posit connect login`, which performs the RFC 8693 token exchange and stores the minted key. Downstream `posit connect deploy`/`api` calls therefore carry no server URL or key. Each action ends with an `if: always()` teardown step (`posit connect remove --name connect-actions`) so the credential doesn't outlive the action.
+
 ### Deploy flow (`deploy/`)
 
-1. Install `uv` and `rsconnect` CLI
+1. Install `uv` and the `posit` CLI
 2. Resolve config (server, GUID, entrypoint) via `connect_actions.cli resolve-config`
-3. Generate `requirements.txt` from `pyproject.toml` if missing (`generate-requirements.sh`)
-4. Query Connect API for `app_mode`, map to `rsconnect deploy` subcommand (shiny, fastapi, flask, dash, streamlit, bokeh)
-5. Run `rsconnect deploy` with `--draft` flag for PRs
-6. Extract content URL from deploy logs, set as action output
-7. On PRs: comment preview URL via `actions/github-script`
+3. Log in to Connect (`scripts/login.sh`)
+4. Generate `requirements.txt` from `pyproject.toml` if missing (`generate-requirements.sh`)
+5. Query `app_mode` via `posit connect api`, map to `posit connect deploy` subcommand (shiny, fastapi, flask, dash, streamlit, bokeh)
+6. Run `posit connect deploy` with `--draft` flag for PRs
+7. Extract content URL from deploy logs, set as action output
+8. On PRs: comment preview URL via `actions/github-script`
+9. Log out (teardown)
 
 ### Cleanup flow (`cleanup-previews/`)
 
-1. Install `uv`, resolve config
-2. Via `actions/github-script`: read PR comments, extract bundle IDs from `draft/(\d+)` URL pattern, call Connect API `DELETE /__api__/v1/content/{guid}/bundles/{bundleId}` for each, post summary comment
+1. Install `uv` and the `posit` CLI
+2. Via `actions/github-script`: read PR comments, extract server + GUID + bundle IDs from `draft/(\d+)` URL pattern (plus the accumulated `preview-bundles` metadata), emit a `targets` JSON
+3. Log in to Connect (`scripts/login.sh`)
+4. Bash step: delete each bundle with `posit connect api v1/content/{guid}/bundles/{id} -X DELETE`
+5. Via `actions/github-script`: post a summary comment listing the deleted bundle IDs
+6. Log out (teardown)
 
 ## Key Dependencies (runtime in GitHub Actions)
 
 - `uv` (via `astral-sh/setup-uv@v7`) -- Python package management and tool installation
-- `rsconnect` (installed via `uv tool install rsconnect`) -- CLI for deploying to Connect
-- `actions/github-script@v7` -- inline JavaScript for GitHub API interactions
-- `jq`, `curl` -- used in `deploy.sh` to query the Connect API
+- `posit` CLI (installed via `uv tool install git+https://github.com/posit-dev/posit-cli`) -- wraps `rsconnect-python`; used for login, deploy, and raw Connect API requests (`posit connect api`)
+- `actions/github-script@v9` -- inline JavaScript for GitHub API interactions (PR comments)
+- `jq`, `curl` -- `curl` fetches the GitHub OIDC token in `login.sh`; `jq` parses the cleanup `targets` JSON
 
 ## Development Notes
 

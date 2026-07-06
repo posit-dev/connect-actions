@@ -30,6 +30,13 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+
+    - name: Set up posit CLI
+      shell: bash
+      run: uv tool install "git+https://github.com/posit-dev/posit-cli"
+
     # Read the PR's preview comments and work out which bundles to delete on
     # which server. The deploy action embeds everything we need in the preview
     # URL (server + content GUID + bundle id) plus a hidden metadata block that
@@ -151,62 +158,67 @@ runs:
           core.setOutput('connect_server', targetServer);
           core.setOutput('targets', JSON.stringify(targets));
 
-    - name: Get API key via OIDC
-      id: oidc
-      if: inputs.connect-api-key == '' && steps.resolve.outputs.connect_server != ''
+    - name: Log in to Connect
+      if: steps.resolve.outputs.connect_server != ''
       shell: bash
-      run: ${{ github.action_path }}/../get-api-key/get-api-key.sh
+      run: ${{ github.action_path }}/../scripts/login.sh
       env:
         CONNECT_SERVER: ${{ steps.resolve.outputs.connect_server }}
+        CONNECT_API_KEY: ${{ inputs.connect-api-key }}
         OIDC_AUDIENCE: ${{ inputs.audience }}
 
+    # Delete the draft bundles via the Connect API. Every request goes through
+    # the logged-in default server, so no credential is handled here. The ids we
+    # actually delete are written to this step's output for the summary comment.
     - name: Delete preview bundles
+      id: delete
       if: steps.resolve.outputs.connect_server != ''
+      shell: bash
+      env:
+        TARGETS: ${{ steps.resolve.outputs.targets }}
+      run: |
+        set -euo pipefail
+        deleted=()
+        # Feed the loops with process substitution (`< <(...)`) rather than a
+        # pipe, so the body runs in this shell and the `deleted` array survives.
+        while read -r target; do
+          guid=$(jq -r '.guid' <<< "$target")
+          while read -r bundle_id; do
+            if posit connect api "v1/content/$guid/bundles/$bundle_id" -X DELETE; then
+              echo "Deleted bundle $bundle_id (content $guid)"
+              deleted+=("$bundle_id")
+            else
+              echo "::warning::Failed to delete bundle $bundle_id (content $guid)"
+            fi
+          done < <(jq -r '.bundles[]' <<< "$target")
+        done < <(jq -c '.[]' <<< "$TARGETS")
+        # Comma-separated list of deleted ids for the summary comment.
+        IFS=,
+        echo "deleted=${deleted[*]:-}" >> "$GITHUB_OUTPUT"
+
+    - name: Comment cleanup summary
+      if: steps.delete.outputs.deleted != ''
       uses: actions/github-script@v9
       env:
         CONNECT_SERVER: ${{ steps.resolve.outputs.connect_server }}
-        CONNECT_API_KEY: ${{ inputs.connect-api-key != '' && inputs.connect-api-key || steps.oidc.outputs.api_key }}
-        TARGETS: ${{ steps.resolve.outputs.targets }}
+        DELETED: ${{ steps.delete.outputs.deleted }}
       with:
         github-token: ${{ inputs.github-token }}
         script: |
           const prNumber = context.payload.inputs?.pr_number || context.issue.number;
           const connectServer = process.env.CONNECT_SERVER;
-          const apiKey = process.env.CONNECT_API_KEY;
-          const targets = JSON.parse(process.env.TARGETS);
+          const deleted = process.env.DELETED.split(',');
 
-          const deleted = [];
-          for (const { guid, bundles } of targets) {
-            for (const bundleId of bundles) {
-              try {
-                const response = await fetch(
-                  `${connectServer}/__api__/v1/content/${guid}/bundles/${bundleId}`,
-                  {
-                    method: 'DELETE',
-                    headers: {
-                      'Authorization': `Key ${apiKey}`,
-                    },
-                  }
-                );
+          await github.rest.issues.createComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: prNumber,
+            body: `Cleaned up ${deleted.length} preview bundle(s) on ${connectServer}: ${deleted.join(', ')}`
+          });
 
-                if (response.ok) {
-                  console.log(`Deleted bundle ${bundleId} (content ${guid})`);
-                  deleted.push(bundleId);
-                } else {
-                  const errorText = await response.text();
-                  console.error(`Failed to delete bundle ${bundleId} (content ${guid}): ${response.status} ${errorText}`);
-                }
-              } catch (error) {
-                console.error(`Error deleting bundle ${bundleId} (content ${guid}):`, error);
-              }
-            }
-          }
-
-          if (deleted.length > 0) {
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: prNumber,
-              body: `Cleaned up ${deleted.length} preview bundle(s) on ${connectServer}: ${deleted.join(', ')}`
-            });
-          }
+    # Drop the stored credential so it doesn't outlive this action. `|| true`
+    # tolerates the case where login never ran (nothing to clean up).
+    - name: Log out of Connect
+      if: always() && steps.resolve.outputs.connect_server != ''
+      shell: bash
+      run: posit connect remove --name connect-actions || true
