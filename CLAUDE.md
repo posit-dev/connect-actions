@@ -35,7 +35,7 @@ Both actions authenticate once via `scripts/login.sh`, which logs the `posit` CL
 1. Install `uv` and the `posit` CLI
 2. Resolve config (server, GUID, entrypoint) via `connect_actions.cli resolve-config`
 3. Log in to Connect (`scripts/login.sh`)
-4. Check Connect capabilities: read the server version (`posit connect api server_settings -q .version`) and run `connect_actions.cli check-deploy-features`, which fails fast if a draft is requested on a server older than 2025.06.0 and sets the `send_metadata` output (false on servers older than 2025.12.0, or when the version can't be read)
+4. Check Connect capabilities: read the server version (`posit connect api server_settings -q .version`) and run `connect_actions.cli check-deploy-features`, which fails fast if a draft is requested on a server older than 2025.07.0 and sets the `send_metadata` output (false on servers older than 2025.12.0, or when the version can't be read)
 5. Generate `requirements.txt` from `pyproject.toml` if missing (`generate-requirements.sh`)
 6. Query `app_mode` via `posit connect api`, map to `posit connect deploy` subcommand (shiny, fastapi, flask, dash, streamlit, bokeh)
 7. Run `posit connect deploy` with `--draft` flag for PRs, passing `--metadata` only when `send_metadata` is true

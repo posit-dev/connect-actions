@@ -45,7 +45,7 @@ require newer releases. On each deploy, the action reads the server version
 |---|---|---|
 | Deploying with an API key | broadly supported | — |
 | Trusted Publishing (OIDC, no API key) | **2026.07.0**, plus an **Enhanced or Advanced** license | Login fails with a clear error---provide `connect-api-key` instead |
-| Draft PR previews (`draft: true`, the default on pull requests) | **2025.06.0** | Deploy fails fast with a clear error---set `draft: false` to deploy directly instead of staging a preview |
+| Draft PR previews (`draft: true`, the default on pull requests) | **2025.07.0** | Deploy fails fast with a clear error---set `draft: false` to deploy directly instead of staging a preview |
 | Git provenance metadata (commit, author, branch, PR) | **2025.12.0** | Silently skipped; the deploy still succeeds, just without the metadata |
 
 If your Connect administrator has hidden the server version, the action can't

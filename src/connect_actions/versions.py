@@ -22,8 +22,11 @@ import re
 
 # Minimum Connect version for each feature, as a comparable version tuple.
 FEATURE_MIN_VERSIONS: dict[str, tuple[int, int, int]] = {
-    # Draft (preview) deployments: `posit connect deploy --draft`.
-    "drafts": (2025, 6, 0),
+    # Draft (preview) deployments: `posit connect deploy --draft`. Draft
+    # previews first appeared in Connect 2025.06.0, but rsconnect verifies a
+    # deploy against the draft's preview URL, which only works from 2025.07.0
+    # (on 2025.06.0 that verification fails, sinking the deploy).
+    "drafts": (2025, 7, 0),
     # Bundle metadata upload (`--metadata`), via rsconnect's multipart API.
     # https://github.com/posit-dev/rsconnect-python/pull/736
     "metadata": (2025, 12, 0),

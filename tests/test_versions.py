@@ -53,16 +53,19 @@ def test_supports_unknown_version_returns_none(feature):
 
 
 def test_supports_at_and_above_minimum():
-    assert supports("2025.06.0", "drafts") is True
+    assert supports("2025.07.0", "drafts") is True
     assert supports("2025.12.0", "drafts") is True
     assert supports("2025.12.0", "metadata") is True
 
 
 def test_supports_below_minimum():
+    # 2025.06.0 added draft previews but rsconnect can't verify a deploy against
+    # them until 2025.07.0, so it's below the drafts floor.
+    assert supports("2025.06.0", "drafts") is False
     assert supports("2025.05.0", "drafts") is False
     assert supports("2025.06.0", "metadata") is False
 
 
 def test_format_min_version_zero_pads_month():
-    assert format_min_version("drafts") == "2025.06.0"
+    assert format_min_version("drafts") == "2025.07.0"
     assert format_min_version("metadata") == "2025.12.0"

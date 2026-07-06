@@ -81,7 +81,9 @@ def test_check_deploy_features_old_server_skips_metadata(tmp_path, monkeypatch, 
 
 def test_check_deploy_features_draft_on_old_server_fails(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "github_output"))
-    monkeypatch.setenv("CONNECT_VERSION", "2025.05.0")
+    # 2025.06.0 has draft previews but rsconnect can't verify a deploy against
+    # them until 2025.07.0, so a draft request must still fail fast here.
+    monkeypatch.setenv("CONNECT_VERSION", "2025.06.0")
     monkeypatch.setenv("DRAFT", "true")
 
     assert main(["check-deploy-features"]) == 1
