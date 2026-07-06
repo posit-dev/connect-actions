@@ -20,11 +20,23 @@ jobs:
         run: uv run pytest
 
   e2e-deploy:
-    name: End-to-end deploy against a real Connect
+    name: e2e (Connect ${{ matrix.connect-version }})
     # Fork PRs can't read secrets.CONNECT_LICENSE, so Connect can't start.
     # Skip on fork PRs rather than failing; same-repo PRs and pushes still run.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    strategy:
+      # Run every version even if one fails, so a single version-specific
+      # regression doesn't mask the others.
+      fail-fast: false
+      matrix:
+        # The floor is 2025.06.0: the suite exercises a draft deploy, which the
+        # action requires 2025.06.0 or newer for (older servers fail fast). Git
+        # provenance metadata needs 2025.12.0, but the action degrades
+        # gracefully below that (skips it), so the 2025.06.0 leg still passes
+        # the full suite -- just without metadata. 'release' tracks the latest
+        # Connect build to catch breakage early.
+        connect-version: ["2025.06.0", "2025.12.0", "release"]
     permissions:
       contents: read
       # Lets the deploy action comment the preview URL on the draft deploy below.
@@ -35,15 +47,19 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
 
+      # The workflow's own steps (create records, verify bundles, ...) talk to
+      # Connect through `posit connect api`, which reads CONNECT_SERVER /
+      # CONNECT_API_KEY from the environment -- no login needed.
+      - name: Set up posit CLI
+        run: uv tool install "git+https://github.com/posit-dev/posit-cli"
+
       # Spin up a real Connect in Docker and keep it running for the rest of the
       # job. Outputs CONNECT_SERVER / CONNECT_API_KEY / CONTAINER_ID.
       - name: Start Connect
         id: connect
         uses: posit-dev/with-connect@main
         with:
-          # The deploy action always passes --metadata, which uses a bundle-upload
-          # API that requires Connect 2025.12.0 or later (rsconnect-python #736).
-          version: 2025.12.0
+          version: ${{ matrix.connect-version }}
           license: ${{ secrets.CONNECT_LICENSE }}
 
       # The deploy action updates existing content, so the records have to exist
@@ -59,11 +75,7 @@ jobs:
         run: |
           set -euo pipefail
           create() {
-            curl -fsS -X POST \
-              -H "Authorization: Key $CONNECT_API_KEY" \
-              -H "Content-Type: application/json" \
-              -d "{\"name\": \"$1\"}" \
-              "$CONNECT_SERVER/__api__/v1/content" | jq -r '.guid'
+            posit connect api v1/content -X POST -f name="$1" -q .guid
           }
           PROD_GUID=$(create connect-actions-e2e-prod)
           DRAFT_GUID=$(create connect-actions-e2e-draft)
@@ -86,9 +98,8 @@ jobs:
           CONNECT_API_KEY: ${{ steps.connect.outputs.CONNECT_API_KEY }}
         run: |
           set -euo pipefail
-          PY_VERSION=$(curl -fsS -H "Authorization: Key $CONNECT_API_KEY" \
-            "$CONNECT_SERVER/__api__/v1/server_settings/python" \
-            | jq -r '.installations | map(.version) | max_by(split(".") | map(tonumber))')
+          PY_VERSION=$(posit connect api v1/server_settings/python \
+            -q '.installations | map(.version) | max_by(split(".") | map(tonumber))')
           echo "Connect has Python: $PY_VERSION"
           [ -n "$PY_VERSION" ] && [ "$PY_VERSION" != "null" ] || { echo "Could not determine Connect Python version"; exit 1; }
           echo "version=$PY_VERSION" >> "$GITHUB_OUTPUT"
@@ -129,9 +140,8 @@ jobs:
           case "$CONTENT_URL" in
             */draft/*) echo "ERROR: production deploy produced a draft URL"; exit 1 ;;
           esac
-          BUNDLES=$(curl -fsS -H "Authorization: Key $CONNECT_API_KEY" \
-            "$CONNECT_SERVER/__api__/v1/content/$GUID/bundles")
-          [ "$(echo "$BUNDLES" | jq 'length')" -ge 1 ] || { echo "ERROR: no bundles created"; exit 1; }
+          COUNT=$(posit connect api "v1/content/$GUID/bundles" -q 'length')
+          [ "$COUNT" -ge 1 ] || { echo "ERROR: no bundles created"; exit 1; }
           echo "Production deploy verified."
 
       # --- Non-manifest deploy (app_mode lookup) --------------------------------
@@ -176,9 +186,8 @@ jobs:
             */draft/*) echo "ERROR: non-manifest production deploy produced a draft URL"; exit 1 ;;
           esac
           # This is the prod record's second deploy, so it should now have >= 2 bundles.
-          BUNDLES=$(curl -fsS -H "Authorization: Key $CONNECT_API_KEY" \
-            "$CONNECT_SERVER/__api__/v1/content/$GUID/bundles")
-          [ "$(echo "$BUNDLES" | jq 'length')" -ge 2 ] || { echo "ERROR: expected a second bundle on the prod record"; exit 1; }
+          COUNT=$(posit connect api "v1/content/$GUID/bundles" -q 'length')
+          [ "$COUNT" -ge 2 ] || { echo "ERROR: expected a second bundle on the prod record"; exit 1; }
           echo "Non-manifest deploy verified."
 
       # --- uv.lock deploy (generate-requirements.sh uv.lock branch) -------------
@@ -228,9 +237,8 @@ jobs:
             */draft/*) echo "ERROR: uv.lock production deploy produced a draft URL"; exit 1 ;;
           esac
           # Third deploy to the prod record, so it should now have >= 3 bundles.
-          BUNDLES=$(curl -fsS -H "Authorization: Key $CONNECT_API_KEY" \
-            "$CONNECT_SERVER/__api__/v1/content/$GUID/bundles")
-          [ "$(echo "$BUNDLES" | jq 'length')" -ge 3 ] || { echo "ERROR: expected a third bundle on the prod record"; exit 1; }
+          COUNT=$(posit connect api "v1/content/$GUID/bundles" -q 'length')
+          [ "$COUNT" -ge 3 ] || { echo "ERROR: expected a third bundle on the prod record"; exit 1; }
           echo "uv.lock deploy verified."
 
       # --- Draft deploy (draft: true) -------------------------------------------
@@ -263,9 +271,8 @@ jobs:
             */draft/*) ;;
             *) echo "ERROR: draft deploy did not produce a draft URL"; exit 1 ;;
           esac
-          BUNDLES=$(curl -fsS -H "Authorization: Key $CONNECT_API_KEY" \
-            "$CONNECT_SERVER/__api__/v1/content/$GUID/bundles")
-          [ "$(echo "$BUNDLES" | jq 'length')" -ge 1 ] || { echo "ERROR: no bundles created"; exit 1; }
+          COUNT=$(posit connect api "v1/content/$GUID/bundles" -q 'length')
+          [ "$COUNT" -ge 1 ] || { echo "ERROR: no bundles created"; exit 1; }
           echo "Draft deploy verified."
 
       # --- Cleanup previews -----------------------------------------------------
@@ -290,9 +297,7 @@ jobs:
           GUID: ${{ steps.create.outputs.draft_guid }}
         run: |
           set -euo pipefail
-          BUNDLES=$(curl -fsS -H "Authorization: Key $CONNECT_API_KEY" \
-            "$CONNECT_SERVER/__api__/v1/content/$GUID/bundles")
-          COUNT=$(echo "$BUNDLES" | jq 'length')
+          COUNT=$(posit connect api "v1/content/$GUID/bundles" -q 'length')
           [ "$COUNT" -eq 0 ] || { echo "ERROR: expected 0 bundles after cleanup, found $COUNT"; exit 1; }
           echo "Cleanup verified: draft bundle deleted."
 
