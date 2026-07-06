@@ -36,7 +36,7 @@ Connect container will not start.
 
 Connect is pinned to `2025.12.0`, the minimum version that supports bundle
 metadata (the `--metadata` upload uses an API that requires Connect 2025.12.0 or
-later, rsconnect-python #736). The deploy action reads the server version and
+later). The deploy action reads the server version and
 only sends metadata when it's supported, so this pin exercises the metadata
 path; older pins would exercise the graceful-degradation path instead.
 
