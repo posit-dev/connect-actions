@@ -30,13 +30,27 @@ jobs:
       # regression doesn't mask the others.
       fail-fast: false
       matrix:
-        # The floor is 2025.06.0: the suite exercises a draft deploy, which the
-        # action requires 2025.06.0 or newer for (older servers fail fast). Git
-        # provenance metadata needs 2025.12.0, but the action degrades
-        # gracefully below that (skips it), so the 2025.06.0 leg still passes
-        # the full suite -- just without metadata. 'release' tracks the latest
-        # Connect build to catch breakage early.
-        connect-version: ["2025.06.0", "2025.12.0", "release"]
+        # Each version exercises a different slice of the supported range:
+        #   * 2024.12.0 -- older than every version-gated feature. Draft
+        #     previews (>=2025.06.0), git metadata (>=2025.12.0), and OIDC
+        #     trusted publishing (>=2026.07.0) are all unavailable. Asserts the
+        #     baseline still works: a plain API-key production deploy, with the
+        #     draft/cleanup legs skipped (supports-drafts: false).
+        #   * 2025.06.0 -- draft floor. Runs the full suite; metadata is still
+        #     silently skipped (needs 2025.12.0) but the deploy succeeds.
+        #   * 2025.12.0 -- metadata floor. Full suite, with git metadata.
+        #   * release   -- latest Connect build, to catch breakage early.
+        # The action degrades gracefully where a feature is missing (#34/#49),
+        # so older legs pass without it rather than failing.
+        include:
+          - connect-version: "2024.12.0"
+            supports-drafts: false
+          - connect-version: "2025.06.0"
+            supports-drafts: true
+          - connect-version: "2025.12.0"
+            supports-drafts: true
+          - connect-version: "release"
+            supports-drafts: true
     permissions:
       contents: read
       # Lets the deploy action comment the preview URL on the draft deploy below.
@@ -242,11 +256,15 @@ jobs:
           echo "uv.lock deploy verified."
 
       # --- Draft deploy (draft: true) -------------------------------------------
+      # Draft previews require Connect >= 2025.06.0 (older servers fail fast), so
+      # this and everything downstream (verify, cleanup) is skipped on the older
+      # legs, which only assert the baseline API-key production deploy above.
       # The record has no active bundle yet, so rsconnect's default post-deploy
       # verification (a GET of the content's main URL) has nothing to reach;
       # --no-verify skips it. The check below is the real assertion.
       - name: Deploy (draft)
         id: deploy-draft
+        if: matrix.supports-drafts
         uses: ./deploy
         with:
           connect-server: ${{ steps.connect.outputs.CONNECT_SERVER }}
@@ -258,6 +276,7 @@ jobs:
           github-token: ${{ github.token }}
 
       - name: Verify draft deploy
+        if: matrix.supports-drafts
         env:
           CONNECT_SERVER: ${{ steps.connect.outputs.CONNECT_SERVER }}
           CONNECT_API_KEY: ${{ steps.connect.outputs.CONNECT_API_KEY }}
@@ -282,7 +301,7 @@ jobs:
       # exists. connect-server is passed to select this run's comment (the PR
       # accumulates comments from prior runs on other ephemeral servers).
       - name: Cleanup preview bundles
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && matrix.supports-drafts
         uses: ./cleanup-previews
         with:
           connect-server: ${{ steps.connect.outputs.CONNECT_SERVER }}
@@ -290,7 +309,7 @@ jobs:
           github-token: ${{ github.token }}
 
       - name: Verify cleanup
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && matrix.supports-drafts
         env:
           CONNECT_SERVER: ${{ steps.connect.outputs.CONNECT_SERVER }}
           CONNECT_API_KEY: ${{ steps.connect.outputs.CONNECT_API_KEY }}
