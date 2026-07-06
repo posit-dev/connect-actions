@@ -259,9 +259,6 @@ jobs:
       # Draft previews require Connect >= 2025.06.0 (older servers fail fast), so
       # this and everything downstream (verify, cleanup) is skipped on the older
       # legs, which only assert the baseline API-key production deploy above.
-      # rsconnect verifies the draft against its own preview URL (not the
-      # not-yet-served main URL), so verification is left on to confirm the app
-      # actually started.
       - name: Deploy (draft)
         id: deploy-draft
         if: matrix.supports-drafts
