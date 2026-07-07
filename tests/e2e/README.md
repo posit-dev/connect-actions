@@ -18,6 +18,15 @@ A sanity check that the `deploy` action can actually deploy to a real Connect:
      it to a `posit connect deploy` subcommand, and deploy;
    - once more from a `pyproject.toml` + `uv.lock` copy, exercising
      `generate-requirements.sh`'s lockfile-export branch;
+   - twice more with **no** explicit `connect-server`/`content-guid`, resolving
+     both from a deployment TOML — once auto-detected from
+     `.posit/publish/deployments/` (tier 3, the "commit the Posit Publisher TOML"
+     workflow) and once named via the `deployment-file` input from a non-default
+     location (tier 2). Both use the manifest-free app copy so the resolved
+     `entrypoint` is actually used. (The resolution logic and its error cases —
+     zero/multiple TOMLs, missing file — are unit-tested in
+     [`tests/test_config.py`](../test_config.py) and
+     [`tests/test_cli.py`](../test_cli.py).)
    - `draft: true` (preview), on the draft-capable legs.
 4. The job verifies each deploy set a non-empty `content-url`, that the URL is a
    draft URL only for the draft deploy, and that bundles were uploaded.

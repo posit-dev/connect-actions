@@ -311,6 +311,116 @@ jobs:
           [ "$COUNT" -ge 3 ] || { echo "ERROR: expected a third bundle on the prod record"; exit 1; }
           echo "uv.lock deploy verified."
 
+      # --- TOML config resolution: tier 3 (auto-detect) -------------------------
+      # The headline "commit the Posit Publisher TOML and let the action pick
+      # everything up" workflow. Write a single deployment TOML under
+      # .posit/publish/deployments/ carrying the server + GUID (+ entrypoint) and
+      # deploy with NO explicit connect-server/content-guid, so config resolution
+      # auto-detects the TOML and feeds the resolved server to login and the
+      # resolved GUID + entrypoint to the deploy. Manifest-free so it takes the
+      # app_mode-lookup path, which is the one that actually uses the resolved
+      # entrypoint (the manifest path ignores it). Reuses the prod record, whose
+      # app_mode is already python-fastapi from the deploys above.
+      - name: Stage app copy with auto-detected deployment TOML
+        env:
+          CONNECT_SERVER: ${{ steps.connect.outputs.CONNECT_SERVER }}
+          PROD_GUID: ${{ steps.create.outputs.prod_guid }}
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/toml-autodetect-app"
+          rm -rf "$APP"
+          cp -r tests/e2e/fastapi-app "$APP"
+          rm -f "$APP/manifest.json"
+          mkdir -p "$APP/.posit/publish/deployments"
+          # A minimal subset of a real Posit Publisher deployment record: the
+          # resolver reads only server_url, id, and configuration.entrypoint.
+          cat > "$APP/.posit/publish/deployments/prod.toml" <<EOF
+          server_url = "$CONNECT_SERVER"
+          id = "$PROD_GUID"
+          [configuration]
+          entrypoint = "app:app"
+          EOF
+
+      - name: Deploy (TOML auto-detect, no explicit server/GUID)
+        id: deploy-toml-autodetect
+        uses: ./deploy
+        with:
+          # Deliberately omit connect-server and content-guid: they must be
+          # resolved from the auto-detected TOML. An API key is still supplied
+          # (OIDC trusted publishing isn't configured on the ephemeral server).
+          connect-api-key: ${{ steps.connect.outputs.CONNECT_API_KEY }}
+          path: ${{ runner.temp }}/toml-autodetect-app
+          draft: "false"
+          rsconnect-args: --override-python-version ${{ steps.pyver.outputs.version }}
+
+      - name: Verify TOML auto-detect deploy
+        env:
+          CONNECT_SERVER: ${{ steps.connect.outputs.CONNECT_SERVER }}
+          CONNECT_API_KEY: ${{ steps.connect.outputs.CONNECT_API_KEY }}
+          CONTENT_URL: ${{ steps.deploy-toml-autodetect.outputs['content-url'] }}
+          GUID: ${{ steps.create.outputs.prod_guid }}
+        run: |
+          set -euo pipefail
+          echo "content-url: $CONTENT_URL"
+          [ -n "$CONTENT_URL" ] || { echo "ERROR: empty content-url"; exit 1; }
+          case "$CONTENT_URL" in
+            */draft/*) echo "ERROR: production deploy produced a draft URL"; exit 1 ;;
+          esac
+          # Fourth deploy to the prod record, so it should now have >= 4 bundles.
+          COUNT=$(posit connect api "v1/content/$GUID/bundles" -q 'length')
+          [ "$COUNT" -ge 4 ] || { echo "ERROR: expected a fourth bundle on the prod record"; exit 1; }
+          echo "TOML auto-detect deploy verified."
+
+      # --- TOML config resolution: tier 2 (deployment-file input) ---------------
+      # Same as tier 3, but the TOML lives outside .posit/publish/deployments/ and
+      # is named explicitly via the deployment-file input (resolved relative to
+      # the app path). Exercises the second resolution tier end-to-end.
+      - name: Stage app copy with a non-default deployment TOML
+        env:
+          CONNECT_SERVER: ${{ steps.connect.outputs.CONNECT_SERVER }}
+          PROD_GUID: ${{ steps.create.outputs.prod_guid }}
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/toml-file-app"
+          rm -rf "$APP"
+          cp -r tests/e2e/fastapi-app "$APP"
+          rm -f "$APP/manifest.json"
+          mkdir -p "$APP/deploy-config"
+          cat > "$APP/deploy-config/prod.toml" <<EOF
+          server_url = "$CONNECT_SERVER"
+          id = "$PROD_GUID"
+          [configuration]
+          entrypoint = "app:app"
+          EOF
+
+      - name: Deploy (deployment-file, no explicit server/GUID)
+        id: deploy-toml-file
+        uses: ./deploy
+        with:
+          connect-api-key: ${{ steps.connect.outputs.CONNECT_API_KEY }}
+          path: ${{ runner.temp }}/toml-file-app
+          deployment-file: deploy-config/prod.toml
+          draft: "false"
+          rsconnect-args: --override-python-version ${{ steps.pyver.outputs.version }}
+
+      - name: Verify deployment-file deploy
+        env:
+          CONNECT_SERVER: ${{ steps.connect.outputs.CONNECT_SERVER }}
+          CONNECT_API_KEY: ${{ steps.connect.outputs.CONNECT_API_KEY }}
+          CONTENT_URL: ${{ steps.deploy-toml-file.outputs['content-url'] }}
+          GUID: ${{ steps.create.outputs.prod_guid }}
+        run: |
+          set -euo pipefail
+          echo "content-url: $CONTENT_URL"
+          [ -n "$CONTENT_URL" ] || { echo "ERROR: empty content-url"; exit 1; }
+          case "$CONTENT_URL" in
+            */draft/*) echo "ERROR: production deploy produced a draft URL"; exit 1 ;;
+          esac
+          # Fifth deploy to the prod record, so it should now have >= 5 bundles.
+          COUNT=$(posit connect api "v1/content/$GUID/bundles" -q 'length')
+          [ "$COUNT" -ge 5 ] || { echo "ERROR: expected a fifth bundle on the prod record"; exit 1; }
+          echo "deployment-file deploy verified."
+
       # --- Draft deploy (draft: true) -------------------------------------------
       # Draft previews require Connect >= 2025.07.0 (older servers fail fast), so
       # this and everything downstream (verify, cleanup) is skipped on the older
