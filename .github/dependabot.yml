@@ -1,0 +1,22 @@
+version: 2
+updates:
+  # GitHub Actions used by the composite actions and the workflows.
+  # "/" covers the workflow files under .github/workflows; the composite
+  # action.yml files live in subdirectories, so list those explicitly.
+  - package-ecosystem: "github-actions"
+    directories:
+      - "/"
+      - "/deploy"
+      - "/cleanup-previews"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+
+  # Python dependencies managed by uv (pyproject.toml + uv.lock).
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
