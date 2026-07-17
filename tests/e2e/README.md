@@ -28,7 +28,19 @@ A sanity check that the `deploy` action can actually deploy to a real Connect:
      [`tests/test_config.py`](../test_config.py) and
      [`tests/test_cli.py`](../test_cli.py).)
    - `draft: true` (preview), on the draft-capable legs.
-4. The job verifies each deploy set a non-empty `content-url`, that the URL is a
+4. A separate [`quarto-doc`](quarto-doc) fixture (a minimal `.qmd` with Python
+   content) exercises the Quarto path against its own content record:
+   - first via a generated `manifest.json` (the manifest-free record starts as
+     `app_mode` `unknown`), which also sets the record's `app_mode` to
+     `quarto-static`;
+   - then again *without* a manifest, driven by a deployment TOML whose
+     `type = "quarto-static"`. This is the leg that covers the Quarto-specific
+     action code: the TOML type makes config resolution report a `quarto`
+     `content_type` (triggering the action's "Set up Quarto" step), and
+     `deploy.sh` maps `quarto-static` to the `quarto` subcommand and passes the
+     resolved entrypoint as the positional document argument (Quarto has no
+     `--entrypoint` flag).
+5. The job verifies each deploy set a non-empty `content-url`, that the URL is a
    draft URL only for the draft deploy, and that bundles were uploaded.
 
 A freshly created content record has an `app_mode` of `unknown`, so the deploys go

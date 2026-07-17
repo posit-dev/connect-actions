@@ -149,12 +149,14 @@ jobs:
           }
           PROD_GUID=$(create connect-actions-e2e-prod)
           DRAFT_GUID=$(create connect-actions-e2e-draft)
-          for guid in "$PROD_GUID" "$DRAFT_GUID"; do
+          QUARTO_GUID=$(create connect-actions-e2e-quarto)
+          for guid in "$PROD_GUID" "$DRAFT_GUID" "$QUARTO_GUID"; do
             [ -n "$guid" ] && [ "$guid" != "null" ] || { echo "Failed to create content record"; exit 1; }
           done
-          echo "Created prod=$PROD_GUID draft=$DRAFT_GUID"
+          echo "Created prod=$PROD_GUID draft=$DRAFT_GUID quarto=$QUARTO_GUID"
           echo "prod_guid=$PROD_GUID" >> "$GITHUB_OUTPUT"
           echo "draft_guid=$DRAFT_GUID" >> "$GITHUB_OUTPUT"
+          echo "quarto_guid=$QUARTO_GUID" >> "$GITHUB_OUTPUT"
 
       # Connect matches a content's Python version exactly, so everything below
       # must target a version Connect actually has -- not whatever the runner
@@ -185,6 +187,25 @@ jobs:
             --entrypoint app:app \
             --override-python-version "${{ steps.pyver.outputs.version }}" \
             tests/e2e/fastapi-app
+
+      # `rsconnect write-manifest quarto` runs `quarto inspect` locally to build
+      # the manifest, so the runner needs Quarto. (The action installs its own
+      # Quarto for the deploy legs below; this is just for the workflow's own
+      # manifest generation.)
+      - name: Set up Quarto
+        uses: quarto-dev/quarto-actions/setup@8a96df13519ee81fd526f2dfca5962811136661b # v2.2.0
+
+      # Generate the Quarto fixture's manifest at test time, the same way the
+      # fastapi manifest is generated above. `quarto inspect` reads the doc's
+      # metadata without executing it, so no Python/Jupyter environment is needed.
+      - name: Generate manifest for Quarto fixture
+        run: |
+          set -euo pipefail
+          uvx --from "git+https://github.com/posit-dev/rsconnect-python" \
+            rsconnect write-manifest quarto \
+            --overwrite \
+            --override-python-version "${{ steps.pyver.outputs.version }}" \
+            tests/e2e/quarto-doc/report.qmd
 
       # --- Production deploy (draft: false) -------------------------------------
       - name: Deploy (production)
@@ -420,6 +441,98 @@ jobs:
           COUNT=$(posit connect api "v1/content/$GUID/bundles" -q 'length')
           [ "$COUNT" -ge 5 ] || { echo "ERROR: expected a fifth bundle on the prod record"; exit 1; }
           echo "deployment-file deploy verified."
+
+      # --- Quarto deploy: manifest bootstrap ------------------------------------
+      # Deploy the Quarto fixture to its own record via the generated manifest.
+      # As with the fastapi prod deploy, a freshly created record is app_mode
+      # "unknown", so the manifest path is the one that takes it straight to
+      # deployed. This also sets the record's app_mode to "quarto-static", which
+      # the app_mode-lookup leg below relies on.
+      - name: Deploy (Quarto, manifest)
+        id: deploy-quarto-manifest
+        uses: ./deploy
+        with:
+          connect-server: ${{ steps.connect.outputs.CONNECT_SERVER }}
+          connect-api-key: ${{ steps.connect.outputs.CONNECT_API_KEY }}
+          content-guid: ${{ steps.create.outputs.quarto_guid }}
+          path: tests/e2e/quarto-doc
+          draft: "false"
+
+      - name: Verify Quarto manifest deploy
+        env:
+          CONNECT_SERVER: ${{ steps.connect.outputs.CONNECT_SERVER }}
+          CONNECT_API_KEY: ${{ steps.connect.outputs.CONNECT_API_KEY }}
+          CONTENT_URL: ${{ steps.deploy-quarto-manifest.outputs['content-url'] }}
+          GUID: ${{ steps.create.outputs.quarto_guid }}
+        run: |
+          set -euo pipefail
+          echo "content-url: $CONTENT_URL"
+          [ -n "$CONTENT_URL" ] || { echo "ERROR: empty content-url"; exit 1; }
+          case "$CONTENT_URL" in
+            */draft/*) echo "ERROR: production deploy produced a draft URL"; exit 1 ;;
+          esac
+          APP_MODE=$(posit connect api "v1/content/$GUID" -q '.app_mode')
+          [ "$APP_MODE" = "quarto-static" ] || { echo "ERROR: expected app_mode quarto-static, got $APP_MODE"; exit 1; }
+          COUNT=$(posit connect api "v1/content/$GUID/bundles" -q 'length')
+          [ "$COUNT" -ge 1 ] || { echo "ERROR: no bundles created"; exit 1; }
+          echo "Quarto manifest deploy verified."
+
+      # --- Quarto deploy: app_mode lookup via deployment TOML -------------------
+      # Redeploy the Quarto record without a manifest, driven by a deployment
+      # TOML whose `type = "quarto-static"`. This is the leg that actually
+      # exercises the Quarto-specific action code: the TOML's type makes config
+      # resolution report content_type "quarto-static", which triggers the
+      # action's "Set up Quarto" step; then deploy.sh looks up the app_mode,
+      # maps quarto-static -> the `quarto` subcommand, and passes the resolved
+      # entrypoint as the positional document argument (Quarto has no
+      # --entrypoint flag). Manifest-free so it takes the app_mode-lookup path.
+      - name: Stage Quarto app copy with deployment TOML
+        env:
+          CONNECT_SERVER: ${{ steps.connect.outputs.CONNECT_SERVER }}
+          QUARTO_GUID: ${{ steps.create.outputs.quarto_guid }}
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/quarto-toml-app"
+          rm -rf "$APP"
+          cp -r tests/e2e/quarto-doc "$APP"
+          rm -f "$APP/manifest.json"
+          mkdir -p "$APP/.posit/publish/deployments"
+          cat > "$APP/.posit/publish/deployments/quarto.toml" <<EOF
+          type = "quarto-static"
+          server_url = "$CONNECT_SERVER"
+          id = "$QUARTO_GUID"
+          [configuration]
+          entrypoint = "report.qmd"
+          EOF
+
+      - name: Deploy (Quarto, app_mode lookup)
+        id: deploy-quarto-appmode
+        uses: ./deploy
+        with:
+          connect-api-key: ${{ steps.connect.outputs.CONNECT_API_KEY }}
+          path: ${{ runner.temp }}/quarto-toml-app
+          draft: "false"
+          # No manifest, so `quarto inspect` would otherwise pin the runner's
+          # Python. Target a version Connect has, as a real project would.
+          rsconnect-args: --override-python-version ${{ steps.pyver.outputs.version }}
+
+      - name: Verify Quarto app_mode deploy
+        env:
+          CONNECT_SERVER: ${{ steps.connect.outputs.CONNECT_SERVER }}
+          CONNECT_API_KEY: ${{ steps.connect.outputs.CONNECT_API_KEY }}
+          CONTENT_URL: ${{ steps.deploy-quarto-appmode.outputs['content-url'] }}
+          GUID: ${{ steps.create.outputs.quarto_guid }}
+        run: |
+          set -euo pipefail
+          echo "content-url: $CONTENT_URL"
+          [ -n "$CONTENT_URL" ] || { echo "ERROR: empty content-url"; exit 1; }
+          case "$CONTENT_URL" in
+            */draft/*) echo "ERROR: production deploy produced a draft URL"; exit 1 ;;
+          esac
+          # Second deploy to the Quarto record, so it should now have >= 2 bundles.
+          COUNT=$(posit connect api "v1/content/$GUID/bundles" -q 'length')
+          [ "$COUNT" -ge 2 ] || { echo "ERROR: expected a second bundle on the Quarto record"; exit 1; }
+          echo "Quarto app_mode deploy verified."
 
       # --- Draft deploy (draft: true) -------------------------------------------
       # Draft previews require Connect >= 2025.07.0 (older servers fail fast), so
