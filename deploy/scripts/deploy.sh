@@ -2,44 +2,23 @@
 # Deploy to Posit Connect using the `posit` CLI. Assumes a prior login step has
 # stored the server credential as the default (see scripts/login.sh), so no
 # server URL or API key is passed here.
-# Required env vars: CONTENT_GUID
+# Required env vars: CONTENT_GUID, APP_TYPE (resolved by the "Determine app type"
+#   step: a `posit connect deploy` subcommand, or "manifest")
 # Optional env vars: CONFIG_ENTRYPOINT, DRAFT, GITHUB_EVENT_NAME, RSCONNECT_ARGS
 
 set -euo pipefail
 
-# If a manifest.json is present, deploy with it directly. The manifest already
-# declares app type, entrypoint, and dependencies, so we skip the Connect
-# app_mode lookup and ignore CONFIG_ENTRYPOINT.
+# The app type is resolved upstream (from a manifest.json or the Connect content
+# record's app_mode) so the action can set up Quarto before this step runs.
 ENTRYPOINT_ARGS=()
-if [ -f "manifest.json" ]; then
-  echo "Found manifest.json; deploying with posit connect deploy manifest"
-  APP_TYPE="manifest"
+if [ "$APP_TYPE" = "manifest" ]; then
+  # A manifest.json already declares app type, entrypoint, and dependencies, so
+  # we deploy it directly and ignore CONFIG_ENTRYPOINT.
+  echo "Deploying with posit connect deploy manifest"
   DEPLOY_TARGET="manifest.json"
 else
   DEPLOY_TARGET="."
-
-  echo "Fetching app mode from Connect API..."
-  APP_MODE=$(posit connect api "v1/content/$CONTENT_GUID" -q '.app_mode // empty')
-
-  if [ -z "$APP_MODE" ]; then
-    echo "Error: Could not determine app_mode from Connect API for content $CONTENT_GUID"
-    exit 1
-  fi
-
-  # Map Connect app_mode to posit connect deploy subcommand
-  case "$APP_MODE" in
-    "python-shiny") APP_TYPE="shiny" ;;
-    "python-fastapi") APP_TYPE="fastapi" ;;
-    "python-flask") APP_TYPE="flask" ;;
-    "python-dash") APP_TYPE="dash" ;;
-    "python-streamlit") APP_TYPE="streamlit" ;;
-    "python-bokeh") APP_TYPE="bokeh" ;;
-    "quarto-static") APP_TYPE="quarto" ;;
-    "quarto-shiny") APP_TYPE="shiny" ;;
-    *) APP_TYPE="$APP_MODE" ;;
-  esac
-
-  echo "Detected app type: $APP_TYPE (from app_mode: $APP_MODE)"
+  echo "Deploying app type: $APP_TYPE"
 
   if [ -n "${CONFIG_ENTRYPOINT:-}" ]; then
     # `posit connect deploy quarto` takes the entrypoint document as its

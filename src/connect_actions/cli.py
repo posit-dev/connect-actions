@@ -11,6 +11,7 @@ import argparse
 import os
 import sys
 
+from .apptype import AppTypeError, resolve_app_type
 from .config import ConfigError, resolve_config
 from .versions import format_min_version, supports
 
@@ -43,13 +44,37 @@ def cmd_resolve_config(_args: argparse.Namespace) -> int:
         connect_server=config.connect_server,
         content_guid=config.content_guid,
         entrypoint=config.entrypoint,
-        content_type=config.content_type,
     )
     return 0
 
 
 def _truthy(value: str) -> bool:
     return value.strip().lower() == "true"
+
+
+def cmd_resolve_app_type(_args: argparse.Namespace) -> int:
+    """Map the content's app_mode to a deploy subcommand and Quarto need.
+
+    Reads ``MANIFEST_PRESENT`` (whether a ``manifest.json`` was found) and
+    ``APP_MODE`` (from ``posit connect api``), then writes ``app_type`` and
+    ``needs_quarto`` so the action can conditionally set up Quarto and hand the
+    subcommand to the deploy step.
+    """
+    try:
+        app_type = resolve_app_type(
+            manifest_present=_truthy(os.environ.get("MANIFEST_PRESENT", "")),
+            app_mode=os.environ.get("APP_MODE", ""),
+        )
+    except AppTypeError as err:
+        print(f"Error: {err}", file=sys.stderr)
+        return 1
+
+    print(f"Resolved app type: {app_type.deploy_type} (needs_quarto={app_type.needs_quarto})")
+    _write_output(
+        app_type=app_type.deploy_type,
+        needs_quarto="true" if app_type.needs_quarto else "false",
+    )
+    return 0
 
 
 def cmd_check_deploy_features(_args: argparse.Namespace) -> int:
@@ -102,6 +127,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Resolve Connect server, content GUID, and entrypoint.",
     )
     resolve.set_defaults(func=cmd_resolve_config)
+
+    app_type = subparsers.add_parser(
+        "resolve-app-type",
+        help="Map the content's app_mode to a deploy subcommand and Quarto need.",
+    )
+    app_type.set_defaults(func=cmd_resolve_app_type)
 
     deploy_features = subparsers.add_parser(
         "check-deploy-features",

@@ -29,7 +29,6 @@ class Config:
     connect_server: str
     content_guid: str
     entrypoint: str = ""
-    content_type: str = ""
 
 
 class ConfigError(Exception):
@@ -83,10 +82,6 @@ def parse_deployment_file(path: Path) -> Config:
         connect_server=data.get("server_url", ""),
         content_guid=data.get("id", ""),
         entrypoint=configuration.get("entrypoint", ""),
-        # Posit Publisher records the content type (e.g. "quarto-static",
-        # "python-shiny") at the top level; the deploy action uses it to decide
-        # whether the runner needs a Quarto install for `quarto inspect`.
-        content_type=data.get("type", ""),
     )
 
 

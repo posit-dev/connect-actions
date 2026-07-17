@@ -479,13 +479,14 @@ jobs:
 
       # --- Quarto deploy: app_mode lookup via deployment TOML -------------------
       # Redeploy the Quarto record without a manifest, driven by a deployment
-      # TOML whose `type = "quarto-static"`. This is the leg that actually
-      # exercises the Quarto-specific action code: the TOML's type makes config
-      # resolution report content_type "quarto-static", which triggers the
-      # action's "Set up Quarto" step; then deploy.sh looks up the app_mode,
-      # maps quarto-static -> the `quarto` subcommand, and passes the resolved
-      # entrypoint as the positional document argument (Quarto has no
-      # --entrypoint flag). Manifest-free so it takes the app_mode-lookup path.
+      # TOML that supplies the server/GUID/entrypoint. This is the leg that
+      # actually exercises the Quarto-specific action code: the "Determine app
+      # type" step looks up the record's app_mode (quarto-static, set by the
+      # manifest deploy above), maps it to the `quarto` subcommand and reports
+      # needs_quarto=true, which triggers the action's "Set up Quarto" step; then
+      # deploy.sh passes the resolved entrypoint as the positional document
+      # argument (Quarto has no --entrypoint flag). Manifest-free so it takes the
+      # app_mode-lookup path.
       - name: Stage Quarto app copy with deployment TOML
         env:
           CONNECT_SERVER: ${{ steps.connect.outputs.CONNECT_SERVER }}

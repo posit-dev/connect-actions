@@ -70,14 +70,6 @@ runs:
         INPUT_CONTENT_GUID: ${{ inputs.content-guid }}
         INPUT_DEPLOYMENT_FILE: ${{ inputs.deployment-file }}
 
-    # Quarto content is rendered on Connect, but `posit connect deploy quarto`
-    # runs `quarto inspect` locally to build the manifest, so the runner needs a
-    # Quarto install. Only set it up for Quarto content (detected from the
-    # deployment TOML's `type`) to keep Python deploys lean.
-    - name: Set up Quarto
-      if: startsWith(steps.config.outputs.content_type, 'quarto')
-      uses: quarto-dev/quarto-actions/setup@8a96df13519ee81fd526f2dfca5962811136661b # v2.2.0
-
     - name: Log in to Connect
       shell: bash
       run: ${{ github.action_path }}/../scripts/login.sh
@@ -85,6 +77,35 @@ runs:
         CONNECT_SERVER: ${{ steps.config.outputs.connect_server }}
         CONNECT_API_KEY: ${{ inputs.connect-api-key }}
         OIDC_AUDIENCE: ${{ inputs.audience }}
+
+    # Determine the deploy subcommand from the Connect content record (the single
+    # source of truth, present with or without a deployment TOML). A manifest.json
+    # short-circuits the lookup. Also decides whether the runner needs Quarto.
+    - name: Determine app type
+      id: apptype
+      shell: bash
+      working-directory: ${{ inputs.path }}
+      run: |
+        if [ -f "manifest.json" ]; then
+          MANIFEST_PRESENT=true
+          APP_MODE=""
+        else
+          MANIFEST_PRESENT=false
+          echo "Fetching app mode from Connect API..."
+          APP_MODE=$(posit connect api "v1/content/$CONTENT_GUID" -q '.app_mode // empty')
+        fi
+        export MANIFEST_PRESENT APP_MODE
+        uv run --project ${{ github.action_path }}/.. python -m connect_actions.cli resolve-app-type
+      env:
+        CONTENT_GUID: ${{ steps.config.outputs.content_guid }}
+
+    # Quarto content is rendered on Connect, but `posit connect deploy quarto`
+    # runs `quarto inspect` locally to build the manifest, so the runner needs a
+    # Quarto install. Only set it up when the resolved app type needs it, to keep
+    # other deploys lean.
+    - name: Set up Quarto
+      if: steps.apptype.outputs.needs_quarto == 'true'
+      uses: quarto-dev/quarto-actions/setup@8a96df13519ee81fd526f2dfca5962811136661b # v2.2.0
 
     # Read the Connect version and decide which version-gated features to use.
     # Fails fast if a draft is requested on a server too old to support drafts;
@@ -111,6 +132,7 @@ runs:
       run: ${{ github.action_path }}/scripts/deploy.sh
       env:
         CONTENT_GUID: ${{ steps.config.outputs.content_guid }}
+        APP_TYPE: ${{ steps.apptype.outputs.app_type }}
         CONFIG_ENTRYPOINT: ${{ steps.config.outputs.entrypoint }}
         DRAFT: ${{ inputs.draft }}
         SEND_METADATA: ${{ steps.capabilities.outputs.send_metadata }}

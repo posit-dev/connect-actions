@@ -35,13 +35,14 @@ Both actions authenticate once via `scripts/login.sh`, which logs the `posit` CL
 1. Install `uv` and the `posit` CLI
 2. Resolve config (server, GUID, entrypoint) via `connect_actions.cli resolve-config`
 3. Log in to Connect (`scripts/login.sh`)
-4. Check Connect capabilities: read the server version (`posit connect api server_settings -q .version`) and run `connect_actions.cli check-deploy-features`, which fails fast if a draft is requested on a server older than 2025.07.0 and sets the `send_metadata` output (false on servers older than 2025.12.0, or when the version can't be read)
-5. Generate `requirements.txt` from `pyproject.toml` if missing (`generate-requirements.sh`)
-6. Query `app_mode` via `posit connect api`, map to `posit connect deploy` subcommand (shiny, fastapi, flask, dash, streamlit, bokeh)
-7. Run `posit connect deploy` with `--draft` flag for PRs, passing `--metadata` only when `send_metadata` is true
-8. Extract content URL from deploy logs, set as action output
-9. On PRs: comment preview URL via `actions/github-script`
-10. Log out (teardown)
+4. Determine app type: if a `manifest.json` is present use `manifest`; otherwise query `app_mode` from the Connect content record (`posit connect api`) and run `connect_actions.cli resolve-app-type`, which maps it to a `posit connect deploy` subcommand (shiny, fastapi, flask, dash, streamlit, bokeh, quarto) and sets `needs_quarto` (true only when the resolved subcommand is `quarto`)
+5. Set up Quarto (`quarto-dev/quarto-actions/setup`) only when `needs_quarto` is true — the `quarto` subcommand runs `quarto inspect` locally to build the manifest
+6. Check Connect capabilities: read the server version (`posit connect api server_settings -q .version`) and run `connect_actions.cli check-deploy-features`, which fails fast if a draft is requested on a server older than 2025.07.0 and sets the `send_metadata` output (false on servers older than 2025.12.0, or when the version can't be read)
+7. Generate `requirements.txt` from `pyproject.toml` if missing (`generate-requirements.sh`)
+8. Run `posit connect deploy` with the resolved app type, `--draft` for PRs, passing `--metadata` only when `send_metadata` is true
+9. Extract content URL from deploy logs, set as action output
+10. On PRs: comment preview URL via `actions/github-script`
+11. Log out (teardown)
 
 ### Cleanup flow (`cleanup-previews/`)
 
