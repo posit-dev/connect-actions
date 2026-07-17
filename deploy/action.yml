@@ -134,6 +134,7 @@ runs:
         CONTENT_GUID: ${{ steps.config.outputs.content_guid }}
         APP_TYPE: ${{ steps.apptype.outputs.app_type }}
         CONFIG_ENTRYPOINT: ${{ steps.config.outputs.entrypoint }}
+        EXTRA_FILES: ${{ steps.config.outputs.extra_files }}
         DRAFT: ${{ inputs.draft }}
         SEND_METADATA: ${{ steps.capabilities.outputs.send_metadata }}
         GITHUB_EVENT_NAME: ${{ github.event_name }}

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import tomllib
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 DEPLOYMENTS_DIR = ".posit/publish/deployments"
@@ -29,6 +29,7 @@ class Config:
     connect_server: str
     content_guid: str
     entrypoint: str = ""
+    extra_files: list[str] = field(default_factory=list)
 
 
 class ConfigError(Exception):
@@ -69,6 +70,35 @@ def find_deployment_file(base_dir: Path) -> Path:
     return toml_files[0]
 
 
+def _resolve_extra_files(files: list[str], entrypoint: str) -> list[str]:
+    """Pick supplementary source files to pass to ``posit connect deploy``.
+
+    Publisher records every bundled file in the ``[configuration].files`` array
+    with a leading ``/`` (relative to the project root). Quarto's deploy takes
+    the entrypoint document as its positional and only auto-detects the files it
+    can infer, so any other declared source file (e.g. a ``.py`` the document
+    imports) must be passed explicitly as an ``EXTRA_FILES`` positional.
+
+    We keep those declared files but drop the ones that shouldn't (or needn't)
+    be passed as extras:
+
+    * the entrypoint itself -- already the positional argument;
+    * ``requirements.txt`` -- rsconnect includes it automatically, and the
+      action regenerates it;
+    * anything under ``.posit/`` -- deployment metadata, not runtime files (and
+      the recorded names there aren't always faithful to what's on disk).
+    """
+    extras: list[str] = []
+    for entry in files:
+        rel = entry.lstrip("/")
+        if not rel or rel == entrypoint or rel == "requirements.txt":
+            continue
+        if rel == ".posit" or rel.startswith(".posit/"):
+            continue
+        extras.append(rel)
+    return extras
+
+
 def parse_deployment_file(path: Path) -> Config:
     """Parse a Posit deployment TOML file into a :class:`Config`.
 
@@ -78,10 +108,12 @@ def parse_deployment_file(path: Path) -> Config:
         data = tomllib.load(f)
 
     configuration = data.get("configuration", {})
+    entrypoint = configuration.get("entrypoint", "")
     return Config(
         connect_server=data.get("server_url", ""),
         content_guid=data.get("id", ""),
-        entrypoint=configuration.get("entrypoint", ""),
+        entrypoint=entrypoint,
+        extra_files=_resolve_extra_files(configuration.get("files", []), entrypoint),
     )
 
 

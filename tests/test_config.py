@@ -17,7 +17,7 @@ from connect_actions.config import (
 DEPLOYMENTS = ".posit/publish/deployments"
 
 
-def write_toml(path: Path, *, server="", guid="", entrypoint=None) -> Path:
+def write_toml(path: Path, *, server="", guid="", entrypoint=None, files=None) -> Path:
     """Write a minimal Posit deployment TOML at ``path``."""
     path.parent.mkdir(parents=True, exist_ok=True)
     lines = []
@@ -25,9 +25,13 @@ def write_toml(path: Path, *, server="", guid="", entrypoint=None) -> Path:
         lines.append(f'server_url = "{server}"')
     if guid:
         lines.append(f'id = "{guid}"')
-    if entrypoint is not None:
+    if entrypoint is not None or files is not None:
         lines.append("[configuration]")
+    if entrypoint is not None:
         lines.append(f'entrypoint = "{entrypoint}"')
+    if files is not None:
+        rendered = ", ".join(f'"{f}"' for f in files)
+        lines.append(f"files = [{rendered}]")
     path.write_text("\n".join(lines) + "\n")
     return path
 
@@ -141,8 +145,42 @@ def test_missing_keys_resolve_to_empty(tmp_path):
     toml_path.write_text("unrelated = true\n")
 
     assert parse_deployment_file(toml_path) == Config(
-        connect_server="", content_guid="", entrypoint=""
+        connect_server="", content_guid="", entrypoint="", extra_files=[]
     )
+
+
+def test_extra_files_excludes_entrypoint_requirements_and_posit(tmp_path):
+    # The declared files array carries the entrypoint, requirements.txt, .posit
+    # metadata, and supplementary sources. Only the supplementary sources should
+    # come back as extra files (entrypoint is the positional; requirements.txt
+    # and .posit/ are handled elsewhere or not needed at runtime).
+    config = parse_deployment_file(
+        write_toml(
+            tmp_path / "app.toml",
+            server="s",
+            guid="g",
+            entrypoint="report.qmd",
+            files=[
+                "/report.qmd",
+                "/requirements.txt",
+                "/.posit/publish/Config-ABCD.toml",
+                "/.posit/publish/deployments/deployment-WXYZ.toml",
+                "/helper.py",
+                "/data/input.csv",
+            ],
+        )
+    )
+
+    assert config.entrypoint == "report.qmd"
+    assert config.extra_files == ["helper.py", "data/input.csv"]
+
+
+def test_extra_files_empty_without_files_array(tmp_path):
+    config = parse_deployment_file(
+        write_toml(tmp_path / "app.toml", server="s", guid="g", entrypoint="report.qmd")
+    )
+
+    assert config.extra_files == []
 
 
 def test_log_callback_reports_progress(tmp_path):

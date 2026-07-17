@@ -16,9 +16,23 @@ from .config import ConfigError, resolve_config
 from .versions import format_min_version, supports
 
 
+def _format_output(key: str, value: str) -> str:
+    """Format a single ``GITHUB_OUTPUT`` entry.
+
+    Values containing newlines use the heredoc form so multi-line outputs (e.g.
+    a newline-delimited file list, whose entries may contain spaces) survive
+    intact; everything else uses the plain ``key=value`` form.
+    """
+    if "\n" in value:
+        # A delimiter that cannot appear in the value (GHA rejects it otherwise).
+        delimiter = "__GHA_EOF__"
+        return f"{key}<<{delimiter}\n{value}\n{delimiter}"
+    return f"{key}={value}"
+
+
 def _write_output(**values: str) -> None:
-    """Append ``key=value`` lines to ``GITHUB_OUTPUT`` (or stdout when unset)."""
-    lines = [f"{key}={value}" for key, value in values.items()]
+    """Append output entries to ``GITHUB_OUTPUT`` (or stdout when unset)."""
+    lines = [_format_output(key, value) for key, value in values.items()]
     github_output = os.environ.get("GITHUB_OUTPUT")
     if github_output:
         with open(github_output, "a") as f:
@@ -44,6 +58,7 @@ def cmd_resolve_config(_args: argparse.Namespace) -> int:
         connect_server=config.connect_server,
         content_guid=config.content_guid,
         entrypoint=config.entrypoint,
+        extra_files="\n".join(config.extra_files),
     )
     return 0
 

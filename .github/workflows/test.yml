@@ -50,13 +50,20 @@ jobs:
       # server in e2e-deploy, which pins the manifest's version after download).
       # `quarto inspect` reads the doc's metadata without executing it, so no
       # Python/Jupyter environment is needed.
+      # Run from the fixture directory so the EXTRA_FILES positional resolves the
+      # way rsconnect expects (relative to the entrypoint's directory).
+      # report.qmd reads data/message.txt, a file a single-file Quarto entrypoint
+      # won't auto-bundle, so it's passed explicitly here to get it into the
+      # manifest -- otherwise this leg's render would fail on the missing file.
       - name: Generate manifest for Quarto fixture
+        working-directory: tests/e2e/quarto-doc
         run: |
           set -euo pipefail
           uvx --from "git+https://github.com/posit-dev/rsconnect-python" \
             rsconnect write-manifest quarto \
             --overwrite \
-            tests/e2e/quarto-doc/report.qmd
+            report.qmd \
+            data/message.txt
 
       - name: Upload Quarto fixture manifest
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -542,12 +549,21 @@ jobs:
           cp -r tests/e2e/quarto-doc "$APP"
           rm -f "$APP/manifest.json"
           mkdir -p "$APP/.posit/publish/deployments"
+          # The files array is what Posit Publisher records for the content; the
+          # action derives extra_files from it (everything but the entrypoint,
+          # requirements.txt, and .posit/). report.qmd reads data/message.txt,
+          # which a single-file Quarto entrypoint won't auto-bundle, so listing it
+          # here makes the action pass it as an EXTRA_FILES positional to
+          # `posit connect deploy quarto`. This is the leg that exercises the
+          # extra_files action code: drop the file from the array and this
+          # manifest-free deploy's render fails on the missing file.
           cat > "$APP/.posit/publish/deployments/quarto.toml" <<EOF
           type = "quarto-static"
           server_url = "$CONNECT_SERVER"
           id = "$QUARTO_GUID"
           [configuration]
           entrypoint = "report.qmd"
+          files = ["/report.qmd", "/requirements.txt", "/data/message.txt"]
           EOF
 
       - name: Deploy (Quarto, app_mode lookup)
@@ -577,7 +593,11 @@ jobs:
           # Second deploy to the Quarto record, so it should now have >= 2 bundles.
           COUNT=$(posit connect api "v1/content/$GUID/bundles" -q 'length')
           [ "$COUNT" -ge 2 ] || { echo "ERROR: expected a second bundle on the Quarto record"; exit 1; }
-          echo "Quarto app_mode deploy verified."
+          # This deploy's report.qmd reads data/message.txt, which reaches Connect
+          # only via the TOML's [configuration].files -> extra_files path. If that
+          # path dropped the file the render (and so this deploy) would have
+          # failed, so reaching here already proves the extra file was included.
+          echo "Quarto app_mode deploy verified (extra file bundled and rendered)."
 
       # --- Draft deploy (draft: true) -------------------------------------------
       # Draft previews require Connect >= 2025.07.0 (older servers fail fast), so

@@ -46,6 +46,42 @@ def test_resolve_config_reads_deployment_file(tmp_path, monkeypatch):
     assert "entrypoint=app:app" in written
 
 
+def test_resolve_config_writes_extra_files_as_heredoc(tmp_path, monkeypatch):
+    toml_path = tmp_path / DEPLOYMENTS / "app.toml"
+    toml_path.parent.mkdir(parents=True)
+    toml_path.write_text(
+        'server_url = "https://connect.example.com"\n'
+        'id = "abc-123"\n'
+        "[configuration]\n"
+        'entrypoint = "report.qmd"\n'
+        'files = ["/report.qmd", "/helper.py", "/data/input.csv"]\n'
+    )
+    output_file = tmp_path / "github_output"
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+    monkeypatch.delenv("INPUT_CONNECT_SERVER", raising=False)
+    monkeypatch.delenv("INPUT_CONTENT_GUID", raising=False)
+    monkeypatch.delenv("INPUT_DEPLOYMENT_FILE", raising=False)
+
+    assert main(["resolve-config"]) == 0
+
+    written = output_file.read_text()
+    # Multi-line outputs use the heredoc form so each file lands on its own line.
+    assert "extra_files<<__GHA_EOF__\nhelper.py\ndata/input.csv\n__GHA_EOF__" in written
+
+
+def test_resolve_config_empty_extra_files_uses_plain_form(tmp_path, monkeypatch):
+    output_file = tmp_path / "github_output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+    monkeypatch.setenv("INPUT_CONNECT_SERVER", "https://connect.example.com")
+    monkeypatch.setenv("INPUT_CONTENT_GUID", "guid-123")
+    monkeypatch.setenv("INPUT_DEPLOYMENT_FILE", "")
+
+    assert main(["resolve-config"]) == 0
+
+    assert "extra_files=\n" in output_file.read_text()
+
+
 def test_resolve_config_error_exits_nonzero(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "github_output"))

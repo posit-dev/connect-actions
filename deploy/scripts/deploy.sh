@@ -4,13 +4,15 @@
 # server URL or API key is passed here.
 # Required env vars: CONTENT_GUID, APP_TYPE (resolved by the "Determine app type"
 #   step: a `posit connect deploy` subcommand, or "manifest")
-# Optional env vars: CONFIG_ENTRYPOINT, DRAFT, GITHUB_EVENT_NAME, RSCONNECT_ARGS
+# Optional env vars: CONFIG_ENTRYPOINT, EXTRA_FILES, DRAFT, GITHUB_EVENT_NAME,
+#   RSCONNECT_ARGS
 
 set -euo pipefail
 
 # The app type is resolved upstream (from a manifest.json or the Connect content
 # record's app_mode) so the action can set up Quarto before this step runs.
 ENTRYPOINT_ARGS=()
+EXTRA_FILE_ARGS=()
 if [ "$APP_TYPE" = "manifest" ]; then
   # A manifest.json already declares app type, entrypoint, and dependencies, so
   # we deploy it directly and ignore CONFIG_ENTRYPOINT.
@@ -28,6 +30,20 @@ else
       DEPLOY_TARGET="$CONFIG_ENTRYPOINT"
     else
       ENTRYPOINT_ARGS=(--entrypoint "$CONFIG_ENTRYPOINT")
+    fi
+  fi
+
+  # A single-file quarto entrypoint only bundles the files rsconnect can infer,
+  # so any supplementary source files declared in the deployment TOML (resolved
+  # into EXTRA_FILES by resolve-config) are passed as EXTRA_FILES positionals.
+  # Other app types deploy the whole directory ("."), which already covers them.
+  # EXTRA_FILES is newline-delimited so filenames may contain spaces.
+  if [ "$APP_TYPE" = "quarto" ] && [ -n "${EXTRA_FILES:-}" ]; then
+    while IFS= read -r extra_file; do
+      [ -n "$extra_file" ] && EXTRA_FILE_ARGS+=("$extra_file")
+    done <<< "$EXTRA_FILES"
+    if [ "${#EXTRA_FILE_ARGS[@]}" -gt 0 ]; then
+      echo "Including extra files: ${EXTRA_FILE_ARGS[*]}"
     fi
   fi
 fi
@@ -84,7 +100,7 @@ if [ "${SEND_METADATA:-true}" = "true" ]; then
 fi
 
 # shellcheck disable=SC2086
-posit connect deploy "$APP_TYPE" "${DRAFT_ARGS[@]}" --app-id "$CONTENT_GUID" "${ENTRYPOINT_ARGS[@]}" "${METADATA_ARGS[@]}" ${RSCONNECT_ARGS:-} "$DEPLOY_TARGET" 2>&1 | tee deploy.log
+posit connect deploy "$APP_TYPE" "${DRAFT_ARGS[@]}" --app-id "$CONTENT_GUID" "${ENTRYPOINT_ARGS[@]}" "${METADATA_ARGS[@]}" ${RSCONNECT_ARGS:-} "$DEPLOY_TARGET" "${EXTRA_FILE_ARGS[@]}" 2>&1 | tee deploy.log
 
 # Extract URL from logs, stripping ANSI color codes
 CONTENT_URL=$(grep "$URL_PATTERN" deploy.log | sed "s/.*$URL_PATTERN //" | sed 's/\x1b\[[0-9;]*m//g')
