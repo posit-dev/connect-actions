@@ -42,7 +42,14 @@ else
   echo "Detected app type: $APP_TYPE (from app_mode: $APP_MODE)"
 
   if [ -n "${CONFIG_ENTRYPOINT:-}" ]; then
-    ENTRYPOINT_ARGS=(--entrypoint "$CONFIG_ENTRYPOINT")
+    # `posit connect deploy quarto` takes the entrypoint document as its
+    # FILE_OR_DIRECTORY positional argument and has no --entrypoint option;
+    # every other subcommand uses --entrypoint.
+    if [ "$APP_TYPE" = "quarto" ]; then
+      DEPLOY_TARGET="$CONFIG_ENTRYPOINT"
+    else
+      ENTRYPOINT_ARGS=(--entrypoint "$CONFIG_ENTRYPOINT")
+    fi
   fi
 fi
 
