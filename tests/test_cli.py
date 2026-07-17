@@ -58,6 +58,41 @@ def test_resolve_config_error_exits_nonzero(tmp_path, monkeypatch, capsys):
     assert "Error: No .posit/publish/deployments/ directory" in capsys.readouterr().err
 
 
+def test_resolve_app_type_maps_app_mode(tmp_path, monkeypatch):
+    output_file = tmp_path / "github_output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+    monkeypatch.setenv("MANIFEST_PRESENT", "false")
+    monkeypatch.setenv("APP_MODE", "quarto-static")
+
+    assert main(["resolve-app-type"]) == 0
+
+    written = output_file.read_text()
+    assert "app_type=quarto" in written
+    assert "needs_quarto=true" in written
+
+
+def test_resolve_app_type_manifest(tmp_path, monkeypatch):
+    output_file = tmp_path / "github_output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+    monkeypatch.setenv("MANIFEST_PRESENT", "true")
+    monkeypatch.setenv("APP_MODE", "")
+
+    assert main(["resolve-app-type"]) == 0
+
+    written = output_file.read_text()
+    assert "app_type=manifest" in written
+    assert "needs_quarto=false" in written
+
+
+def test_resolve_app_type_empty_mode_exits_nonzero(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "github_output"))
+    monkeypatch.setenv("MANIFEST_PRESENT", "false")
+    monkeypatch.setenv("APP_MODE", "")
+
+    assert main(["resolve-app-type"]) == 1
+    assert "Could not determine app_mode" in capsys.readouterr().err
+
+
 def test_check_deploy_features_recent_server_sends_metadata(tmp_path, monkeypatch):
     output_file = tmp_path / "github_output"
     monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
