@@ -34,6 +34,7 @@ else
     "python-dash") APP_TYPE="dash" ;;
     "python-streamlit") APP_TYPE="streamlit" ;;
     "python-bokeh") APP_TYPE="bokeh" ;;
+    "quarto-static") APP_TYPE="quarto" ;;
     "quarto-shiny") APP_TYPE="shiny" ;;
     *) APP_TYPE="$APP_MODE" ;;
   esac
