@@ -24,7 +24,7 @@ Both actions resolve Connect server URL and content GUID through the same 3-tier
 2. Specified deployment TOML file (`deployment-file` input)
 3. Auto-detection from `.posit/publish/deployments/` (must find exactly one `.toml`)
 
-This logic lives in `src/connect_actions/config.py` (`resolve_config()`), invoked by both actions via `uv run --project ${{ github.action_path }}/.. python -m connect_actions.cli resolve-config`. The pure functions parse TOML with stdlib `tomllib` and return a `Config`; the thin `cli.py` layer reads `INPUT_*` env vars and writes `GITHUB_OUTPUT`. Deploy uses the `entrypoint` field from the TOML `[configuration]` section; cleanup-previews ignores it.
+This logic lives in `src/connect_actions/config.py` (`resolve_config()`), invoked by both actions via `uv run --project ${{ github.action_path }}/.. python -m connect_actions.cli resolve-config`. The pure functions parse TOML with stdlib `tomllib` and return a `Config`; the thin `cli.py` layer reads `INPUT_*` env vars and writes `GITHUB_OUTPUT`. Deploy uses the `entrypoint` field from the TOML `[configuration]` section (cleanup-previews ignores it) and its `extra_files`, derived from the `[configuration].files` array: every declared file minus the entrypoint, `requirements.txt`, and anything under `.posit/`. These are the supplementary sources a single-file entrypoint won't auto-bundle (e.g. a `.py` a Quarto document imports); the deploy step passes them to `posit connect deploy quarto` as trailing `EXTRA_FILES` positionals. `extra_files` is emitted as a newline-delimited multi-line `GITHUB_OUTPUT` value so filenames may contain spaces.
 
 ### Shared login pattern
 
@@ -33,13 +33,13 @@ Both actions authenticate once via `scripts/login.sh`, which logs the `posit` CL
 ### Deploy flow (`deploy/`)
 
 1. Install `uv` and the `posit` CLI
-2. Resolve config (server, GUID, entrypoint) via `connect_actions.cli resolve-config`
+2. Resolve config (server, GUID, entrypoint, extra_files) via `connect_actions.cli resolve-config`
 3. Log in to Connect (`scripts/login.sh`)
 4. Determine app type: if a `manifest.json` is present use `manifest`; otherwise query `app_mode` from the Connect content record (`posit connect api`) and run `connect_actions.cli resolve-app-type`, which maps it to a `posit connect deploy` subcommand (shiny, fastapi, flask, dash, streamlit, bokeh, quarto) and sets `needs_quarto` (true only when the resolved subcommand is `quarto`)
 5. Set up Quarto (`quarto-dev/quarto-actions/setup`) only when `needs_quarto` is true — the `quarto` subcommand runs `quarto inspect` locally to build the manifest
 6. Check Connect capabilities: read the server version (`posit connect api server_settings -q .version`) and run `connect_actions.cli check-deploy-features`, which fails fast if a draft is requested on a server older than 2025.07.0 and sets the `send_metadata` output (false on servers older than 2025.12.0, or when the version can't be read)
 7. Generate `requirements.txt` from `pyproject.toml` if missing (`generate-requirements.sh`)
-8. Run `posit connect deploy` with the resolved app type, `--draft` for PRs, passing `--metadata` only when `send_metadata` is true
+8. Run `posit connect deploy` with the resolved app type, `--draft` for PRs, passing `--metadata` only when `send_metadata` is true, and appending `extra_files` as trailing positionals for `quarto` deploys
 9. Extract content URL from deploy logs, set as action output
 10. On PRs: comment preview URL via `actions/github-script`
 11. Log out (teardown)
