@@ -40,6 +40,18 @@ A sanity check that the `deploy` action can actually deploy to a real Connect:
      `deploy.sh` maps `quarto-static` to the `quarto` subcommand and passes the
      resolved entrypoint as the positional document argument (Quarto has no
      `--entrypoint` flag).
+
+   This second leg also exercises the `extra_files` path. `report.qmd` reads a
+   supplementary file ([`data/message.txt`](quarto-doc/data/message.txt)) that a
+   single-file Quarto entrypoint won't auto-bundle, so the render — and therefore
+   the deploy — only succeeds if the file is carried along. On this leg the
+   deployment TOML declares it in `[configuration].files`, which the action
+   derives `extra_files` from and passes to `posit connect deploy quarto` as an
+   `EXTRA_FILES` positional; drop it from the array and this deploy fails. That
+   makes this the leg covering the `extra_files` action code. (The manifest
+   bootstrap leg renders the same document, so it carries the file too — but
+   there it just rides in the manifest, added via `write-manifest`'s extra-file
+   argument, not through the `extra_files` action code.)
 5. The job verifies each deploy set a non-empty `content-url`, that the URL is a
    draft URL only for the draft deploy, and that bundles were uploaded.
 
