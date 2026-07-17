@@ -26,8 +26,48 @@ jobs:
       - name: Run pytest
         run: uv run pytest
 
+  # Build the Quarto fixture's manifest in a job of its own, and hand it to
+  # e2e-deploy as an artifact. `rsconnect write-manifest quarto` runs `quarto
+  # inspect` locally, so *something* needs Quarto on PATH -- but if that Quarto
+  # lived in the e2e-deploy job it would also satisfy the Quarto deploy legs,
+  # masking a broken "Set up Quarto" step in the action under test. Isolating it
+  # here keeps the e2e runner Quarto-free except for the Quarto the deploy action
+  # installs itself, so those legs genuinely exercise that install.
+  quarto-manifest:
+    name: Build Quarto fixture manifest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+
+      - name: Set up Quarto
+        uses: quarto-dev/quarto-actions/setup@8a96df13519ee81fd526f2dfca5962811136661b # v2.2.0
+
+      # No --override-python-version here: this job can't know which Python the
+      # ephemeral Connect will have (that's resolved per-leg from the running
+      # server in e2e-deploy, which pins the manifest's version after download).
+      # `quarto inspect` reads the doc's metadata without executing it, so no
+      # Python/Jupyter environment is needed.
+      - name: Generate manifest for Quarto fixture
+        run: |
+          set -euo pipefail
+          uvx --from "git+https://github.com/posit-dev/rsconnect-python" \
+            rsconnect write-manifest quarto \
+            --overwrite \
+            tests/e2e/quarto-doc/report.qmd
+
+      - name: Upload Quarto fixture manifest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: quarto-manifest
+          path: tests/e2e/quarto-doc/manifest.json
+          if-no-files-found: error
+
   e2e-deploy:
     name: e2e (Connect ${{ matrix.connect-version }})
+    needs: quarto-manifest
     # Fork PRs can't read secrets.CONNECT_LICENSE, so Connect can't start.
     # Skip on fork PRs rather than failing; same-repo PRs and pushes still run.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
@@ -188,24 +228,28 @@ jobs:
             --override-python-version "${{ steps.pyver.outputs.version }}" \
             tests/e2e/fastapi-app
 
-      # `rsconnect write-manifest quarto` runs `quarto inspect` locally to build
-      # the manifest, so the runner needs Quarto. (The action installs its own
-      # Quarto for the deploy legs below; this is just for the workflow's own
-      # manifest generation.)
-      - name: Set up Quarto
-        uses: quarto-dev/quarto-actions/setup@8a96df13519ee81fd526f2dfca5962811136661b # v2.2.0
+      # The Quarto fixture's manifest is built in the quarto-manifest job (so
+      # this runner stays Quarto-free -- see that job's comment). Pull it into
+      # the fixture directory where the deploy legs below expect it.
+      - name: Download Quarto fixture manifest
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: quarto-manifest
+          path: tests/e2e/quarto-doc
 
-      # Generate the Quarto fixture's manifest at test time, the same way the
-      # fastapi manifest is generated above. `quarto inspect` reads the doc's
-      # metadata without executing it, so no Python/Jupyter environment is needed.
-      - name: Generate manifest for Quarto fixture
+      # Connect matches Python versions exactly (see above), but the manifest
+      # job couldn't know which Python this leg's Connect has. Pin it now to the
+      # version resolved from the running server, the same one the fastapi
+      # manifest and the non-manifest deploys target.
+      - name: Pin Quarto manifest to Connect's Python
+        env:
+          PY_VERSION: ${{ steps.pyver.outputs.version }}
         run: |
           set -euo pipefail
-          uvx --from "git+https://github.com/posit-dev/rsconnect-python" \
-            rsconnect write-manifest quarto \
-            --overwrite \
-            --override-python-version "${{ steps.pyver.outputs.version }}" \
-            tests/e2e/quarto-doc/report.qmd
+          MANIFEST=tests/e2e/quarto-doc/manifest.json
+          jq --arg v "$PY_VERSION" '.python.version = $v' "$MANIFEST" > "$MANIFEST.tmp"
+          mv "$MANIFEST.tmp" "$MANIFEST"
+          echo "Pinned Quarto manifest Python to $PY_VERSION"
 
       # --- Production deploy (draft: false) -------------------------------------
       - name: Deploy (production)
