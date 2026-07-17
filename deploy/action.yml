@@ -70,6 +70,14 @@ runs:
         INPUT_CONTENT_GUID: ${{ inputs.content-guid }}
         INPUT_DEPLOYMENT_FILE: ${{ inputs.deployment-file }}
 
+    # Quarto content is rendered on Connect, but `posit connect deploy quarto`
+    # runs `quarto inspect` locally to build the manifest, so the runner needs a
+    # Quarto install. Only set it up for Quarto content (detected from the
+    # deployment TOML's `type`) to keep Python deploys lean.
+    - name: Set up Quarto
+      if: startsWith(steps.config.outputs.content_type, 'quarto')
+      uses: quarto-dev/quarto-actions/setup@8a96df13519ee81fd526f2dfca5962811136661b # v2.2.0
+
     - name: Log in to Connect
       shell: bash
       run: ${{ github.action_path }}/../scripts/login.sh

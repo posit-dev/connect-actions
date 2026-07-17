@@ -43,6 +43,7 @@ def cmd_resolve_config(_args: argparse.Namespace) -> int:
         connect_server=config.connect_server,
         content_guid=config.content_guid,
         entrypoint=config.entrypoint,
+        content_type=config.content_type,
     )
     return 0
 

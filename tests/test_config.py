@@ -17,7 +17,7 @@ from connect_actions.config import (
 DEPLOYMENTS = ".posit/publish/deployments"
 
 
-def write_toml(path: Path, *, server="", guid="", entrypoint=None) -> Path:
+def write_toml(path: Path, *, server="", guid="", entrypoint=None, type=None) -> Path:
     """Write a minimal Posit deployment TOML at ``path``."""
     path.parent.mkdir(parents=True, exist_ok=True)
     lines = []
@@ -25,6 +25,8 @@ def write_toml(path: Path, *, server="", guid="", entrypoint=None) -> Path:
         lines.append(f'server_url = "{server}"')
     if guid:
         lines.append(f'id = "{guid}"')
+    if type is not None:
+        lines.append(f'type = "{type}"')
     if entrypoint is not None:
         lines.append("[configuration]")
         lines.append(f'entrypoint = "{entrypoint}"')
@@ -141,8 +143,21 @@ def test_missing_keys_resolve_to_empty(tmp_path):
     toml_path.write_text("unrelated = true\n")
 
     assert parse_deployment_file(toml_path) == Config(
-        connect_server="", content_guid="", entrypoint=""
+        connect_server="", content_guid="", entrypoint="", content_type=""
     )
+
+
+def test_content_type_is_parsed(tmp_path):
+    # The top-level `type` drives the deploy action's conditional Quarto setup,
+    # so it must be surfaced on the Config.
+    toml_path = write_toml(
+        tmp_path / "app.toml",
+        server="https://connect.example.com",
+        guid="abc-123",
+        type="quarto-static",
+    )
+
+    assert parse_deployment_file(toml_path).content_type == "quarto-static"
 
 
 def test_log_callback_reports_progress(tmp_path):
