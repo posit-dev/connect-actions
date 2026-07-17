@@ -22,7 +22,13 @@ from dataclasses import dataclass
 
 # Connect ``app_mode`` -> ``posit connect deploy`` subcommand. Modes not listed
 # fall through unchanged, letting the CLI surface whatever it doesn't support.
-# Note ``quarto-shiny`` deploys as a Shiny app, so it does *not* need Quarto.
+#
+# ``quarto-shiny`` is intentionally absent: Connect does not support Python
+# shiny-backed Quarto documents (only R), so a Python deploy should never see
+# that mode on a content record. See
+# https://github.com/posit-dev/rsconnect-python/pull/755#issuecomment-4271245574
+# (the supported path is to ``quarto render`` first, then deploy the rendered
+# output as a plain ``python-shiny`` app).
 APP_MODE_TO_TYPE: dict[str, str] = {
     "python-shiny": "shiny",
     "python-fastapi": "fastapi",
@@ -31,7 +37,6 @@ APP_MODE_TO_TYPE: dict[str, str] = {
     "python-streamlit": "streamlit",
     "python-bokeh": "bokeh",
     "quarto-static": "quarto",
-    "quarto-shiny": "shiny",
 }
 
 

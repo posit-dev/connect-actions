@@ -25,7 +25,6 @@ def test_manifest_short_circuits_lookup():
         ("python-streamlit", "streamlit"),
         ("python-bokeh", "bokeh"),
         ("quarto-static", "quarto"),
-        ("quarto-shiny", "shiny"),
     ],
 )
 def test_known_app_modes_map_to_subcommand(app_mode, deploy_type):
@@ -36,11 +35,13 @@ def test_quarto_static_needs_quarto():
     assert resolve_app_type(manifest_present=False, app_mode="quarto-static").needs_quarto is True
 
 
-def test_quarto_shiny_does_not_need_quarto():
-    # quarto-shiny deploys as a Shiny app, so no local `quarto inspect` runs.
+def test_quarto_shiny_falls_through_unchanged():
+    # Connect doesn't support Python shiny-backed Quarto docs (only R), so there
+    # is no mapping for quarto-shiny; it passes straight through. See
+    # https://github.com/posit-dev/rsconnect-python/pull/755#issuecomment-4271245574
     result = resolve_app_type(manifest_present=False, app_mode="quarto-shiny")
 
-    assert result == AppType(deploy_type="shiny", needs_quarto=False)
+    assert result == AppType(deploy_type="quarto-shiny", needs_quarto=False)
 
 
 def test_unknown_app_mode_falls_through_unchanged():
