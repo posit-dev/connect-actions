@@ -95,8 +95,7 @@ def resolve_app_type(*, manifest_present: bool, app_mode: str) -> AppType:
 
     if app_mode in R_APP_MODES:
         raise AppTypeError(
-            f"This content is R-based (app_mode '{app_mode}'), which this action "
-            "cannot build and deploy from source. R content must be deployed from "
+            f"R content (app_mode '{app_mode}') requires "
             "a manifest.json. Generate one in R with rsconnect::writeManifest() and "
             "commit it to your repository, then re-run the deploy."
         )
