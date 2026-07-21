@@ -39,6 +39,23 @@ APP_MODE_TO_TYPE: dict[str, str] = {
     "quarto-static": "quarto",
 }
 
+# Connect ``app_mode`` values for R content. The ``posit`` CLI (via
+# rsconnect-python) can only build a bundle for Python and Quarto content from
+# source; R content has no source-deploy path here and must be deployed from a
+# pre-built ``manifest.json`` (generated in R with ``rsconnect::writeManifest()``).
+# We single these out so a missing manifest produces an R-tailored error instead
+# of falling through to the Python requirements-generation path. ``quarto-shiny``
+# is R-backed too but is handled separately (it falls through unchanged); see the
+# note on ``APP_MODE_TO_TYPE`` above.
+R_APP_MODES: frozenset[str] = frozenset(
+    {
+        "shiny",  # R Shiny
+        "rmd-shiny",  # interactive R Markdown
+        "rmd-static",  # rendered R Markdown
+        "api",  # R Plumber API
+    }
+)
+
 
 class AppTypeError(Exception):
     """Raised when the deploy subcommand can't be determined.
@@ -61,9 +78,11 @@ def resolve_app_type(*, manifest_present: bool, app_mode: str) -> AppType:
 
     With a ``manifest.json`` present the type is ``manifest`` and Quarto is never
     needed. Otherwise ``app_mode`` (from the Connect content record) is mapped to
-    a subcommand; an empty ``app_mode`` raises :class:`AppTypeError`. Only the
-    ``quarto`` subcommand runs ``quarto inspect`` locally, so ``needs_quarto`` is
-    true exactly when the resolved type is ``quarto``.
+    a subcommand; an empty ``app_mode`` raises :class:`AppTypeError`, as does an R
+    ``app_mode`` (R content has no source-deploy path here and needs a
+    ``manifest.json``). Only the ``quarto`` subcommand runs ``quarto inspect``
+    locally, so ``needs_quarto`` is true exactly when the resolved type is
+    ``quarto``.
     """
     if manifest_present:
         return AppType(deploy_type="manifest", needs_quarto=False)
@@ -72,6 +91,14 @@ def resolve_app_type(*, manifest_present: bool, app_mode: str) -> AppType:
         raise AppTypeError(
             "Could not determine app_mode from the Connect content record. "
             "Provide a manifest.json or ensure the content GUID is correct."
+        )
+
+    if app_mode in R_APP_MODES:
+        raise AppTypeError(
+            f"This content is R-based (app_mode '{app_mode}'), which this action "
+            "cannot build and deploy from source. R content must be deployed from "
+            "a manifest.json. Generate one in R with rsconnect::writeManifest() and "
+            "commit it to your repository, then re-run the deploy."
         )
 
     deploy_type = APP_MODE_TO_TYPE.get(app_mode, app_mode)

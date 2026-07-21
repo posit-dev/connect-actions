@@ -55,3 +55,26 @@ def test_unknown_app_mode_falls_through_unchanged():
 def test_empty_app_mode_without_manifest_errors():
     with pytest.raises(AppTypeError, match="Could not determine app_mode"):
         resolve_app_type(manifest_present=False, app_mode="")
+
+
+@pytest.mark.parametrize("app_mode", ["shiny", "rmd-shiny", "rmd-static", "api"])
+def test_r_app_modes_without_manifest_error_with_r_guidance(app_mode):
+    # R content can't be built from source here; the error must name R and point
+    # to a manifest.json rather than mentioning uv.lock/pyproject.toml/Python.
+    with pytest.raises(AppTypeError) as excinfo:
+        resolve_app_type(manifest_present=False, app_mode=app_mode)
+
+    message = str(excinfo.value)
+    assert "R" in message
+    assert "manifest.json" in message
+    assert "writeManifest" in message
+    assert "uv" not in message.lower()
+    assert "pyproject" not in message.lower()
+
+
+def test_r_app_mode_with_manifest_still_deploys():
+    # A manifest.json is exactly the supported path for R content, so its presence
+    # short-circuits the R check and deploys the manifest directly.
+    result = resolve_app_type(manifest_present=True, app_mode="shiny")
+
+    assert result == AppType(deploy_type="manifest", needs_quarto=False)
