@@ -12,7 +12,7 @@ def test_manifest_short_circuits_lookup():
     # needs a local Quarto install.
     result = resolve_app_type(manifest_present=True, app_mode="quarto-static")
 
-    assert result == AppType(deploy_type="manifest", needs_quarto=False)
+    assert result == AppType(deploy_type="manifest", needs_quarto=False, needs_requirements=False)
 
 
 @pytest.mark.parametrize(
@@ -35,13 +35,43 @@ def test_quarto_static_needs_quarto():
     assert resolve_app_type(manifest_present=False, app_mode="quarto-static").needs_quarto is True
 
 
+@pytest.mark.parametrize(
+    "app_mode",
+    [
+        "python-shiny",
+        "python-fastapi",
+        "python-flask",
+        "python-dash",
+        "python-streamlit",
+        "python-bokeh",
+        # Quarto may run Python via the jupyter engine, so it keeps the
+        # requirements step.
+        "quarto-static",
+        # Fall-through modes with a Python/Jupyter prefix are Python content
+        # even without a mapping.
+        "python-gradio",
+        "jupyter-static",
+    ],
+)
+def test_python_content_needs_requirements(app_mode):
+    assert resolve_app_type(manifest_present=False, app_mode=app_mode).needs_requirements is True
+
+
+def test_nodejs_falls_through_and_skips_requirements():
+    # Node.js content has no Python dependency source, so the requirements step
+    # must be skipped instead of failing on a missing pyproject/uv.lock.
+    result = resolve_app_type(manifest_present=False, app_mode="nodejs")
+
+    assert result == AppType(deploy_type="nodejs", needs_quarto=False, needs_requirements=False)
+
+
 def test_quarto_shiny_falls_through_unchanged():
     # Connect doesn't support Python shiny-backed Quarto docs (only R), so there
     # is no mapping for quarto-shiny; it passes straight through. See
     # https://github.com/posit-dev/rsconnect-python/pull/755#issuecomment-4271245574
     result = resolve_app_type(manifest_present=False, app_mode="quarto-shiny")
 
-    assert result == AppType(deploy_type="quarto-shiny", needs_quarto=False)
+    assert result == AppType(deploy_type="quarto-shiny", needs_quarto=False, needs_requirements=False)
 
 
 def test_unknown_app_mode_falls_through_unchanged():
@@ -49,7 +79,7 @@ def test_unknown_app_mode_falls_through_unchanged():
     # reject it if genuinely unsupported.
     result = resolve_app_type(manifest_present=False, app_mode="python-gradio")
 
-    assert result == AppType(deploy_type="python-gradio", needs_quarto=False)
+    assert result == AppType(deploy_type="python-gradio", needs_quarto=False, needs_requirements=True)
 
 
 def test_empty_app_mode_without_manifest_errors():
@@ -77,4 +107,4 @@ def test_r_app_mode_with_manifest_still_deploys():
     # short-circuits the R check and deploys the manifest directly.
     result = resolve_app_type(manifest_present=True, app_mode="shiny")
 
-    assert result == AppType(deploy_type="manifest", needs_quarto=False)
+    assert result == AppType(deploy_type="manifest", needs_quarto=False, needs_requirements=False)

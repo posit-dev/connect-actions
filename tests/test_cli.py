@@ -105,6 +105,7 @@ def test_resolve_app_type_maps_app_mode(tmp_path, monkeypatch):
     written = output_file.read_text()
     assert "app_type=quarto" in written
     assert "needs_quarto=true" in written
+    assert "needs_requirements=true" in written
 
 
 def test_resolve_app_type_manifest(tmp_path, monkeypatch):
@@ -118,6 +119,21 @@ def test_resolve_app_type_manifest(tmp_path, monkeypatch):
     written = output_file.read_text()
     assert "app_type=manifest" in written
     assert "needs_quarto=false" in written
+    assert "needs_requirements=false" in written
+
+
+def test_resolve_app_type_nodejs_skips_requirements(tmp_path, monkeypatch):
+    output_file = tmp_path / "github_output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+    monkeypatch.setenv("MANIFEST_PRESENT", "false")
+    monkeypatch.setenv("APP_MODE", "nodejs")
+
+    assert main(["resolve-app-type"]) == 0
+
+    written = output_file.read_text()
+    assert "app_type=nodejs" in written
+    assert "needs_quarto=false" in written
+    assert "needs_requirements=false" in written
 
 
 def test_resolve_app_type_empty_mode_exits_nonzero(tmp_path, monkeypatch, capsys):

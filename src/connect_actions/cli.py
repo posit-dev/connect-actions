@@ -71,9 +71,10 @@ def cmd_resolve_app_type(_args: argparse.Namespace) -> int:
     """Map the content's app_mode to a deploy subcommand and Quarto need.
 
     Reads ``MANIFEST_PRESENT`` (whether a ``manifest.json`` was found) and
-    ``APP_MODE`` (from ``posit connect api``), then writes ``app_type`` and
-    ``needs_quarto`` so the action can conditionally set up Quarto and hand the
-    subcommand to the deploy step.
+    ``APP_MODE`` (from ``posit connect api``), then writes ``app_type``,
+    ``needs_quarto``, and ``needs_requirements`` so the action can
+    conditionally set up Quarto, skip requirements generation for non-Python
+    content, and hand the subcommand to the deploy step.
     """
     try:
         app_type = resolve_app_type(
@@ -84,10 +85,15 @@ def cmd_resolve_app_type(_args: argparse.Namespace) -> int:
         print(f"Error: {err}", file=sys.stderr)
         return 1
 
-    print(f"Resolved app type: {app_type.deploy_type} (needs_quarto={app_type.needs_quarto})")
+    print(
+        f"Resolved app type: {app_type.deploy_type} "
+        f"(needs_quarto={app_type.needs_quarto}, "
+        f"needs_requirements={app_type.needs_requirements})"
+    )
     _write_output(
         app_type=app_type.deploy_type,
         needs_quarto="true" if app_type.needs_quarto else "false",
+        needs_requirements="true" if app_type.needs_requirements else "false",
     )
     return 0
 
