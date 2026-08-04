@@ -86,7 +86,7 @@ Connect server supports it.
 **Option A — Trusted Publishing (OIDC), recommended.**
 - Requires Connect **2026.07.0 or newer** with an **Enhanced or Advanced
   license**, and a trusted publisher configured for this content (on the
-  content's **Access** tab in Connect, tied to this GitHub repo). On an older
+  content's **Source** tab in Connect, tied to this GitHub repo). On an older
   server or lesser license, login fails with a clear error---use Option B
   instead.
 - No secret is stored in GitHub. The workflow job just needs
@@ -247,7 +247,7 @@ jobs:
 After writing the files, summarize what was created and the remaining manual
 steps, which depend on the auth choice:
 
-- **OIDC:** enable Trusted Publishing for this content on Connect (Access tab),
+- **OIDC:** enable Trusted Publishing for this content on Connect (Source tab),
   tied to this GitHub repo, if not already done.
 - **API key:** confirm the `CONNECT_API_KEY` secret is set on the repo.
 
