@@ -125,6 +125,18 @@ runs:
       working-directory: ${{ inputs.path }}
       run: ${{ github.action_path }}/scripts/generate-requirements.sh
 
+    # Splits rsconnect-args with shell quoting rules (Python shlex.split) so a
+    # quoted value containing spaces (e.g. `--title "My App"`) survives as a
+    # single argument instead of being IFS word-split by Bash. Emitted as a
+    # newline-delimited output (like extra_files) for deploy.sh to read into
+    # an array and expand quoted.
+    - name: Parse rsconnect-args
+      id: rsconnect_args
+      shell: bash
+      run: uv run --project ${{ github.action_path }}/.. python -m connect_actions.cli resolve-rsconnect-args
+      env:
+        INPUT_RSCONNECT_ARGS: ${{ inputs.rsconnect-args }}
+
     - name: Deploy to Connect
       id: deploy
       shell: bash
@@ -146,7 +158,7 @@ runs:
         PR_NUMBER: ${{ github.event.pull_request.number || '' }}
         PR_TITLE: ${{ github.event.pull_request.title || '' }}
         COMMIT_MESSAGE: ${{ github.event.head_commit.message || '' }}
-        RSCONNECT_ARGS: ${{ inputs.rsconnect-args }}
+        RSCONNECT_ARGS: ${{ steps.rsconnect_args.outputs.rsconnect_args }}
 
     - name: Comment preview URL on PR
       if: github.event_name == 'pull_request' && inputs.draft == 'true'

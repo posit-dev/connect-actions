@@ -168,3 +168,44 @@ def test_check_deploy_features_unknown_version_skips_metadata(tmp_path, monkeypa
     assert main(["check-deploy-features"]) == 0
     assert "send_metadata=false" in output_file.read_text()
     assert "Could not determine the Connect server version" in capsys.readouterr().out
+
+
+def test_resolve_rsconnect_args_simple_flags(tmp_path, monkeypatch):
+    output_file = tmp_path / "github_output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+    monkeypatch.setenv("INPUT_RSCONNECT_ARGS", "--verbose --new")
+
+    assert main(["resolve-rsconnect-args"]) == 0
+
+    assert "rsconnect_args<<__GHA_EOF__\n--verbose\n--new\n__GHA_EOF__" in output_file.read_text()
+
+
+def test_resolve_rsconnect_args_quoted_value_with_spaces(tmp_path, monkeypatch):
+    output_file = tmp_path / "github_output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+    monkeypatch.setenv("INPUT_RSCONNECT_ARGS", '--title "My App"')
+
+    assert main(["resolve-rsconnect-args"]) == 0
+
+    written = output_file.read_text()
+    # The quoted value survives as a single line so deploy.sh reads it back as
+    # one argument instead of splitting on the embedded space.
+    assert "rsconnect_args<<__GHA_EOF__\n--title\nMy App\n__GHA_EOF__" in written
+
+
+def test_resolve_rsconnect_args_empty_uses_plain_form(tmp_path, monkeypatch):
+    output_file = tmp_path / "github_output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+    monkeypatch.setenv("INPUT_RSCONNECT_ARGS", "")
+
+    assert main(["resolve-rsconnect-args"]) == 0
+
+    assert "rsconnect_args=\n" in output_file.read_text()
+
+
+def test_resolve_rsconnect_args_unbalanced_quote_exits_nonzero(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "github_output"))
+    monkeypatch.setenv("INPUT_RSCONNECT_ARGS", '--title "My App')
+
+    assert main(["resolve-rsconnect-args"]) == 1
+    assert "Error: Could not parse rsconnect-args" in capsys.readouterr().err
