@@ -97,7 +97,7 @@ def resolve_app_type(*, manifest_present: bool, app_mode: str) -> AppType:
     dependencies (see :data:`REQUIREMENTS_DEPLOY_TYPES`). It is false for
     manifests even when the content is Python: a manifest deploy bundles
     exactly the files the manifest lists, so the dependency file it names must
-    already sit beside it — one generated at deploy time could never enter the
+    already sit beside it -- one generated at deploy time could never enter the
     bundle. Node.js content declares its dependencies in
     package.json/package-lock.json instead, so there is nothing to generate.
     """

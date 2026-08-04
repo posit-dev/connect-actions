@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-GitHub Actions monorepo (`posit-dev/connect-actions`) providing composite actions for deploying Python applications to [Posit Connect](https://posit.co/products/enterprise/connect/) from GitHub Actions. Currently in early beta; only Python app types supported. All Connect interaction goes through the [`posit` CLI](https://github.com/posit-dev/posit-cli), which mounts the full `rsconnect-python` command set under `posit connect` and adds a `gh api`-style `posit connect api` raw REST client.
+GitHub Actions monorepo (`posit-dev/connect-actions`) providing composite actions for deploying applications to [Posit Connect](https://posit.co/products/enterprise/connect/) from GitHub Actions. Currently in early beta; Python, Quarto, and Node.js content deploys from source, and R content deploys from a pre-built `manifest.json`. All Connect interaction goes through the [`posit` CLI](https://github.com/posit-dev/posit-cli), which mounts the full `rsconnect-python` command set under `posit connect` and adds a `gh api`-style `posit connect api` raw REST client.
 
 ## Repository Structure
 
