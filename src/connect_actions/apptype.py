@@ -94,9 +94,12 @@ def resolve_app_type(*, manifest_present: bool, app_mode: str) -> AppType:
     ``manifest.json``). Only the ``quarto`` subcommand runs ``quarto inspect``
     locally, so ``needs_quarto`` is true exactly when the resolved type is
     ``quarto``. ``needs_requirements`` is true only for content with Python
-    dependencies (see :data:`REQUIREMENTS_DEPLOY_TYPES`); a manifest declares
-    its own dependencies, and non-Python content such as Node.js apps has no
-    requirements.txt to generate.
+    dependencies (see :data:`REQUIREMENTS_DEPLOY_TYPES`). It is false for
+    manifests even when the content is Python: a manifest deploy bundles
+    exactly the files the manifest lists, so the dependency file it names must
+    already sit beside it — one generated at deploy time could never enter the
+    bundle. Node.js content declares its dependencies in
+    package.json/package-lock.json instead, so there is nothing to generate.
     """
     if manifest_present:
         return AppType(deploy_type="manifest", needs_quarto=False, needs_requirements=False)
