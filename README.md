@@ -16,10 +16,10 @@ There are a few prerequisites to set up before you can use these actions:
 
 1. Deploy your content to Connect for the first time by other means. The `deploy` action here will not create a new content item for you; it will only update an existing one with new code. If you use the Publisher extension for Positron, VS Code, or other Code OSS forks, check in the `.posit/` TOML files it creates---this action can detect and use them. Otherwise, you just need the content's URL.
 2. Configure auth. If your Connect server is version 2026.07.0 or newer and has an Enhanced or Advanced license, we recommend using the Trusted Publishing feature, which allows you to publish from this GitHub repository automatically, no API keys needed. You can enable this in the "Access" tab of the content settings. If you are not using Trusted Publishing, you will need to get an API key with at least "publisher" privileges from your Connect account and add it as a GitHub Actions secret.
-3. Make sure your requirements files are checked in.
+3. Make sure the files declaring your dependencies are checked in.
    * For Python content, this can either be a `uv.lock` file or a `requirements.txt`, and if you have neither, one can be generated from a `pyproject.toml` file. (We recommend that you keep both `pyproject.toml` and one of those lockfiles and use [Dependabot](https://docs.github.com/en/code-security/dependabot) to update the lockfile on a schedule so that your content stays up to date and security vulnerabilities are resolved.)
    * For R content, use the `rsconnect::writeManifest()` function to generate a `manifest.json` file.
-   * For Node.js content, no Python requirements file is needed; dependencies come from your `package.json` and `package-lock.json`.
+   * For Node.js content, your `package.json` and `package-lock.json` declare your dependencies.
 
 Then, you can add these actions. There are examples below, or you can let an AI agent set them up for you with the bundled Agent Skill.
 
