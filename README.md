@@ -73,7 +73,7 @@ Here are the full list of inputs and outputs; below we describe what exactly is 
 | `path` | No | Path to the application directory within the repository. Defaults to the repository root. Use this when your app lives in a subdirectory of your repo. |
 | `draft` | No | Deploy as a draft (preview) bundle instead of activating it. Defaults to `true` on `pull_request` events and `false` otherwise. Set it explicitly to override--e.g. `false` to publish directly from a PR, or `true` to stage a draft from a push. |
 | `github-token` | No | GitHub token for commenting preview URLs on PRs |
-| `rsconnect-args` | No | Additional arguments passed to `rsconnect deploy` |
+| `rsconnect-args` | No | Additional arguments passed to `rsconnect deploy`. |
 
 #### Outputs
 
