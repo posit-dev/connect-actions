@@ -13,7 +13,6 @@ import sys
 
 from .apptype import AppTypeError, resolve_app_type
 from .config import ConfigError, resolve_config
-from .rsconnect_args import RsconnectArgsError, parse_rsconnect_args
 from .versions import format_min_version, supports
 
 
@@ -134,25 +133,6 @@ def cmd_check_deploy_features(_args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_resolve_rsconnect_args(_args: argparse.Namespace) -> int:
-    """Split the raw ``rsconnect-args`` input into a shell-quoted argument list.
-
-    Reads ``INPUT_RSCONNECT_ARGS`` and writes it back as a newline-delimited
-    ``rsconnect_args`` output (the same pattern ``extra_files`` uses), so
-    ``deploy.sh`` can read it into a Bash array and expand each argument
-    quoted instead of relying on unquoted (IFS) word-splitting, which can't
-    express a value containing whitespace (e.g. ``--title "My App"``).
-    """
-    try:
-        args = parse_rsconnect_args(os.environ.get("INPUT_RSCONNECT_ARGS", ""))
-    except RsconnectArgsError as err:
-        print(f"Error: {err}", file=sys.stderr)
-        return 1
-
-    _write_output(rsconnect_args="\n".join(args))
-    return 0
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="connect_actions")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -174,12 +154,6 @@ def main(argv: list[str] | None = None) -> int:
         help="Gate draft/metadata deploy features on the Connect version.",
     )
     deploy_features.set_defaults(func=cmd_check_deploy_features)
-
-    rsconnect_args = subparsers.add_parser(
-        "resolve-rsconnect-args",
-        help="Split the rsconnect-args input into a shell-quoted argument list.",
-    )
-    rsconnect_args.set_defaults(func=cmd_resolve_rsconnect_args)
 
     args = parser.parse_args(argv)
     return args.func(args)

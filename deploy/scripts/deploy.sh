@@ -5,8 +5,7 @@
 # Required env vars: CONTENT_GUID, APP_TYPE (resolved by the "Determine app type"
 #   step: a `posit connect deploy` subcommand, or "manifest")
 # Optional env vars: CONFIG_ENTRYPOINT, EXTRA_FILES, DRAFT, GITHUB_EVENT_NAME,
-#   RSCONNECT_ARGS (newline-delimited, resolved from the rsconnect-args input
-#   by the "Parse rsconnect-args" step so quoted values may contain spaces)
+#   RSCONNECT_ARGS (raw rsconnect-args input, parsed with shlex for shell quoting)
 
 set -euo pipefail
 
@@ -100,16 +99,18 @@ if [ "${SEND_METADATA:-true}" = "true" ]; then
   fi
 fi
 
-# RSCONNECT_ARGS is newline-delimited (already split with shell quoting rules
-# by the "Parse rsconnect-args" step), so read it into an array the same way
-# EXTRA_FILES is above; this lets a quoted value with spaces (e.g.
-# `--title "My App"`) reach the CLI as a single argument instead of being
-# IFS word-split by Bash.
 RSCONNECT_ARGS_ARR=()
 if [ -n "${RSCONNECT_ARGS:-}" ]; then
   while IFS= read -r rsconnect_arg; do
     [ -n "$rsconnect_arg" ] && RSCONNECT_ARGS_ARR+=("$rsconnect_arg")
-  done <<< "$RSCONNECT_ARGS"
+  done < <(python3 -c "
+import shlex, sys
+try:
+    print('\n'.join(shlex.split(sys.argv[1])))
+except ValueError as e:
+    print(f'Error: Could not parse rsconnect-args: {e}', file=sys.stderr)
+    sys.exit(1)
+" "$RSCONNECT_ARGS")
 fi
 
 posit connect deploy "$APP_TYPE" "${DRAFT_ARGS[@]}" --app-id "$CONTENT_GUID" "${ENTRYPOINT_ARGS[@]}" "${METADATA_ARGS[@]}" "${RSCONNECT_ARGS_ARR[@]}" "$DEPLOY_TARGET" "${EXTRA_FILE_ARGS[@]}" 2>&1 | tee deploy.log
