@@ -1,10 +1,10 @@
 """Tests for deploy/scripts/generate-requirements.sh.
 
 These drive the shell script directly in a temp directory and assert which
-dependency source it picks. The script orders sources manifest.json ->
-requirements.txt -> uv.lock -> pyproject.toml, so the tests pin down that
-ordering (and the --frozen export behavior) rather than just "a deploy
-succeeds," which can't tell the branches apart.
+dependency source it picks. The script decides purely from the files present,
+ordering sources manifest.json -> requirements.txt -> uv.lock -> pyproject.toml,
+so the tests pin down that ordering (and the --frozen export behavior) rather
+than just "a deploy succeeds," which can't tell the branches apart.
 
 The uv.lock and pyproject.toml branches shell out to ``uv``, which resolves
 from PyPI; these tests need network access (the same as ``uv run pytest``).
@@ -100,9 +100,13 @@ def test_pyproject_only_compiles(tmp_path):
     assert "iniconfig==2.0.0" in (tmp_path / "requirements.txt").read_text()
 
 
-def test_no_sources_errors(tmp_path):
-    # Nothing to deploy from -> non-zero exit and no requirements.txt.
+def test_no_sources_is_not_an_error(tmp_path):
+    # No dependency source of any kind: nothing to generate, and not an error.
+    # Content without Python dependencies (Node.js apps, knitr-engine Quarto
+    # docs) deploys fine, and `posit connect deploy` reports the missing
+    # requirements.txt for content that does need one.
     result = run(tmp_path)
 
-    assert result.returncode != 0
+    assert result.returncode == 0, result.stderr
+    assert "nothing to generate" in result.stdout
     assert not (tmp_path / "requirements.txt").exists()

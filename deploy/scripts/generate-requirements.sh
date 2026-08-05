@@ -1,8 +1,10 @@
 #!/bin/bash
-# Generate requirements.txt if it doesn't exist.
-# The action only runs this step when resolve-app-type reports
-# needs_requirements (content with Python dependencies), so the manifest check
-# below is redundant on that path; it is kept for direct invocations.
+# Generate requirements.txt from a uv.lock or pyproject.toml when it is absent.
+#
+# Which branch runs depends only on the files in the working directory. A
+# missing dependency source is not an error: `posit connect deploy` is what
+# decides whether the content needs a requirements.txt (a jupyter-engine Quarto
+# doc does; a knitr-engine one and a Node.js app do not) and reports it if so.
 
 set -euo pipefail
 
@@ -31,6 +33,5 @@ elif [ -f "pyproject.toml" ]; then
   echo "pyproject.toml found, generating requirements.txt from pyproject.toml..."
   uv pip compile pyproject.toml -o requirements.txt
 else
-  echo "No uv.lock or pyproject.toml file found. Please run 'uv sync' to generate uv.lock or create a pyproject.toml before deploying."
-  exit 1
+  echo "No uv.lock or pyproject.toml file found; nothing to generate."
 fi

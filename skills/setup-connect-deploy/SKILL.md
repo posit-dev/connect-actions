@@ -122,8 +122,8 @@ Connect needs to know your app's dependencies. Check the app directory:
     `requirements.txt` via `uv pip compile pyproject.toml -o requirements.txt`)
     for reproducible deploys, optionally kept fresh with Dependabot.
 - **Node.js, no manifest** → nothing to check; dependencies come from the app's
-  `package.json`/`package-lock.json` and the action skips requirements
-  generation for non-Python content.
+  `package.json`/`package-lock.json`, and with no Python dependency source
+  present the action has nothing to generate.
 
 Don't generate these files yourself unless the user asks — just report what you
 found and recommend.
