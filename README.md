@@ -96,13 +96,13 @@ For authentication, we recommend using Trusted Publishing if your Connect server
 
 If a `manifest.json` exists at the root of your repo, the action deploys it directly using `posit connect deploy manifest`. In this mode the manifest's declared app type, entrypoint, and dependencies are used as-is.
 
-Requirements generation only applies to content with Python dependencies (the Python frameworks, plus Quarto, which may run Python via the jupyter engine). Content without them---such as Node.js apps, whose dependencies come from `package.json`/`package-lock.json`---skips this step entirely.
-
-For Python content, Connect installs your app's dependencies from a `requirements.txt`. When one isn't present, the action generates it, looking for a dependency source in this order:
+Otherwise, Connect installs your app's Python dependencies from a `requirements.txt`. When one isn't present, the action generates it, looking for a dependency source in this order:
 
 1. **`requirements.txt`** -- if it already exists, it is used as-is.
 2. **`uv.lock`** -- exported with `uv export --no-hashes --no-emit-project --frozen`, pinning the exact versions from your lockfile (the lockfile is used as-is; it is never re-resolved at deploy time).
 3. **`pyproject.toml`** -- resolved at deploy time with `uv pip compile`.
+
+If none of these exist, the action generates nothing and moves on. That is the expected case for content with no Python dependencies---Node.js apps, whose dependencies come from `package.json`/`package-lock.json`, or a Quarto document using the knitr engine. If the content does need a `requirements.txt`, the deploy step fails with a message naming the missing file.
 
 For reproducible deploys, we recommend checking a lockfile into your repo alongside `pyproject.toml`: either a `uv.lock` (run `uv lock`) or a pinned `requirements.txt` (run `uv pip compile pyproject.toml -o requirements.txt`). Without one, the action re-resolves your dependencies from `pyproject.toml` on every deploy, so an upstream release can change what gets deployed. To keep a checked-in lockfile fresh, add a scheduled job or a tool like [Dependabot](https://docs.github.com/en/code-security/dependabot) to open update PRs.
 

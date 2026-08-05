@@ -121,11 +121,10 @@ runs:
         DRAFT: ${{ inputs.draft }}
 
     # Python content declares its dependencies through a requirements.txt,
-    # generated here from uv.lock or pyproject.toml when absent. Non-Python
-    # content (e.g. Node.js apps) has no Python dependency source at all, so
-    # skip the step rather than failing on a legitimately missing one.
+    # generated here from uv.lock or pyproject.toml when absent. Content with no
+    # Python dependency source (e.g. Node.js apps) has nothing to generate and
+    # passes through untouched.
     - name: Generate requirements.txt if needed
-      if: steps.apptype.outputs.needs_requirements == 'true'
       shell: bash
       working-directory: ${{ inputs.path }}
       run: ${{ github.action_path }}/scripts/generate-requirements.sh
