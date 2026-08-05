@@ -56,6 +56,16 @@ R_APP_MODES: frozenset[str] = frozenset(
     }
 )
 
+# Deploy types whose bundles declare Python dependencies through a
+# requirements.txt: every mapped type qualifies -- the Python frameworks
+# obviously, and ``quarto`` because a Quarto doc may run Python via the jupyter
+# engine. Fall-through modes are covered by prefix in :func:`resolve_app_type`:
+# any ``python-*``/``jupyter-*`` app_mode is Python content even without an
+# entry in ``APP_MODE_TO_TYPE``. Everything else (e.g. ``nodejs``) carries no
+# Python dependencies, so the action skips requirements generation instead of
+# failing on a bundle that legitimately has no dependency source.
+REQUIREMENTS_DEPLOY_TYPES: frozenset[str] = frozenset(APP_MODE_TO_TYPE.values())
+
 
 class AppTypeError(Exception):
     """Raised when the deploy subcommand can't be determined.
@@ -67,10 +77,11 @@ class AppTypeError(Exception):
 
 @dataclass
 class AppType:
-    """The resolved deploy subcommand and whether it needs a local Quarto."""
+    """The resolved deploy subcommand and which optional deploy steps it needs."""
 
     deploy_type: str
     needs_quarto: bool
+    needs_requirements: bool
 
 
 def resolve_app_type(*, manifest_present: bool, app_mode: str) -> AppType:
@@ -82,10 +93,16 @@ def resolve_app_type(*, manifest_present: bool, app_mode: str) -> AppType:
     ``app_mode`` (R content has no source-deploy path here and needs a
     ``manifest.json``). Only the ``quarto`` subcommand runs ``quarto inspect``
     locally, so ``needs_quarto`` is true exactly when the resolved type is
-    ``quarto``.
+    ``quarto``. ``needs_requirements`` is true only for content with Python
+    dependencies (see :data:`REQUIREMENTS_DEPLOY_TYPES`). It is false for
+    manifests even when the content is Python: a manifest deploy bundles
+    exactly the files the manifest lists, so the dependency file it names must
+    already sit beside it -- one generated at deploy time could never enter the
+    bundle. Node.js content declares its dependencies in
+    package.json/package-lock.json instead, so there is nothing to generate.
     """
     if manifest_present:
-        return AppType(deploy_type="manifest", needs_quarto=False)
+        return AppType(deploy_type="manifest", needs_quarto=False, needs_requirements=False)
 
     if not app_mode:
         raise AppTypeError(
@@ -101,4 +118,9 @@ def resolve_app_type(*, manifest_present: bool, app_mode: str) -> AppType:
         )
 
     deploy_type = APP_MODE_TO_TYPE.get(app_mode, app_mode)
-    return AppType(deploy_type=deploy_type, needs_quarto=deploy_type == "quarto")
+    return AppType(
+        deploy_type=deploy_type,
+        needs_quarto=deploy_type == "quarto",
+        needs_requirements=deploy_type in REQUIREMENTS_DEPLOY_TYPES
+        or app_mode.startswith(("python-", "jupyter-")),
+    )

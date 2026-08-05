@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-GitHub Actions monorepo (`posit-dev/connect-actions`) providing composite actions for deploying Python applications to [Posit Connect](https://posit.co/products/enterprise/connect/) from GitHub Actions. Currently in early beta; only Python app types supported. All Connect interaction goes through the [`posit` CLI](https://github.com/posit-dev/posit-cli), which mounts the full `rsconnect-python` command set under `posit connect` and adds a `gh api`-style `posit connect api` raw REST client.
+GitHub Actions monorepo (`posit-dev/connect-actions`) providing composite actions for deploying applications to [Posit Connect](https://posit.co/products/enterprise/connect/) from GitHub Actions. Currently in early beta; Python, Quarto, and Node.js content deploys from source, and R content deploys from a pre-built `manifest.json`. All Connect interaction goes through the [`posit` CLI](https://github.com/posit-dev/posit-cli), which mounts the full `rsconnect-python` command set under `posit connect` and adds a `gh api`-style `posit connect api` raw REST client.
 
 ## Repository Structure
 
@@ -35,10 +35,10 @@ Both actions authenticate once via `scripts/login.sh`, which logs the `posit` CL
 1. Install `uv` and the `posit` CLI
 2. Resolve config (server, GUID, entrypoint, extra_files) via `connect_actions.cli resolve-config`
 3. Log in to Connect (`scripts/login.sh`)
-4. Determine app type: if a `manifest.json` is present use `manifest`; otherwise query `app_mode` from the Connect content record (`posit connect api`) and run `connect_actions.cli resolve-app-type`, which maps it to a `posit connect deploy` subcommand (shiny, fastapi, flask, dash, streamlit, bokeh, quarto) and sets `needs_quarto` (true only when the resolved subcommand is `quarto`). R app modes (`shiny`, `rmd-shiny`, `rmd-static`, `api`) require a `manifest.json` and will error clearly if it is not present.
+4. Determine app type: if a `manifest.json` is present use `manifest`; otherwise query `app_mode` from the Connect content record (`posit connect api`) and run `connect_actions.cli resolve-app-type`, which maps it to a `posit connect deploy` subcommand (shiny, fastapi, flask, dash, streamlit, bokeh, quarto), sets `needs_quarto` (true only when the resolved subcommand is `quarto`), and sets `needs_requirements` (true only for content with Python dependencies: the mapped subcommands plus fall-through `python-*`/`jupyter-*` app modes; false for e.g. `nodejs` and for manifests). R app modes (`shiny`, `rmd-shiny`, `rmd-static`, `api`) require a `manifest.json` and will error clearly if it is not present.
 5. Set up Quarto (`quarto-dev/quarto-actions/setup`) only when `needs_quarto` is true — the `quarto` subcommand runs `quarto inspect` locally to build the manifest
 6. Check Connect capabilities: read the server version (`posit connect api server_settings -q .version`) and run `connect_actions.cli check-deploy-features`, which fails fast if a draft is requested on a server older than 2025.07.0 and sets the `send_metadata` output (false on servers older than 2025.12.0, or when the version can't be read)
-7. Generate `requirements.txt` from `pyproject.toml` if missing (`generate-requirements.sh`)
+7. Generate `requirements.txt` if missing (`generate-requirements.sh`, from `uv.lock` or `pyproject.toml`) — only when `needs_requirements` is true; non-Python content (e.g. Node.js) skips it
 8. Run `posit connect deploy` with the resolved app type, `--draft` for PRs, passing `--metadata` only when `send_metadata` is true, and appending `extra_files` as trailing positionals for `quarto` deploys
 9. Extract content URL from deploy logs, set as action output
 10. On PRs: comment preview URL via `actions/github-script`

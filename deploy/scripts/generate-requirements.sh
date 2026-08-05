@@ -1,5 +1,8 @@
 #!/bin/bash
-# Generate requirements.txt if it doesn't exist
+# Generate requirements.txt if it doesn't exist.
+# The action only runs this step when resolve-app-type reports
+# needs_requirements (content with Python dependencies), so the manifest check
+# below is redundant on that path; it is kept for direct invocations.
 
 set -euo pipefail
 
