@@ -340,7 +340,7 @@ steps, which depend on the auth choice:
 - **OIDC:** if Step 3a authorized the repository, say so and note the
   `repository` value that was registered (so a later repo rename is a known
   breaking change). If it was skipped, the remaining step is to enable Trusted
-  Publishing for this content on Connect (Access tab), tied to this GitHub repo,
+  Publishing for this content on Connect (Source tab), tied to this GitHub repo,
   using the subject-claim format from Step 3a.
 - **API key:** confirm the `CONNECT_API_KEY` secret is set on the repo.
 
