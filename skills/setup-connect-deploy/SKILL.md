@@ -5,7 +5,8 @@ description: >-
   posit-dev/connect-actions. Use when a user wants to add, scaffold, or
   configure Connect deployment (production deploy, PR draft previews, and
   preview cleanup) in a repo's .github/workflows — including choosing
-  trusted publishing (OIDC) vs. API-key auth and wiring up secrets.
+  trusted publishing (OIDC) vs. API-key auth, authorizing the repository as a
+  trusted publisher on Connect, and wiring up secrets.
 ---
 
 # Set up Posit Connect deployment with connect-actions
@@ -19,7 +20,8 @@ those previews when a PR closes.
 Work through the steps **in order**. Ask the user the questions as you reach
 them rather than assuming answers — the right workflow depends on how they
 authenticate and whether they want PR previews. Do not write any files until
-Step 6.
+Step 6. (Step 3a can change configuration on the Connect server, but only after
+the user opts in to it.)
 
 ---
 
@@ -36,6 +38,11 @@ GitHub remote.
    - If there is no remote, or it isn't a `github.com` URL, tell the user these
      actions only run on GitHub-hosted repos and stop unless they want to
      proceed anyway (e.g. they'll add the remote later).
+
+Steps 3 and 3a use the GitHub CLI (`gh auth status`) and the `posit` CLI
+(installed with `uv tool install git+https://github.com/posit-dev/posit-cli`).
+Neither is required to scaffold the workflows — check for them when you get
+there, and fall back to telling the user what to do in the UI if they're missing.
 
 Then explain the one prerequisite the skill can't do for them:
 
@@ -93,6 +100,8 @@ Connect server supports it.
   `permissions: id-token: write` so it can request an OIDC token, which the
   action exchanges for a short-lived Connect key.
 - Nothing goes in the workflow for auth beyond that permission.
+- If the user picks this, **offer to authorize the repository on Connect for
+  them** — see Step 3a. Skip Step 3a for Option B.
 
 **Option B — API key in a repo secret.**
 - The user needs a Connect API key with at least **publisher** privileges (from
@@ -103,6 +112,84 @@ Connect server supports it.
   GitHub UI under Settings → Secrets and variables → Actions.
 - The workflow references it as `connect-api-key: ${{ secrets.CONNECT_API_KEY }}`
   and does **not** need `id-token: write`.
+
+## Step 3a — Authorize the repository on Connect (Trusted Publishing only)
+
+Ask whether the trusted publisher is already configured for this content. If it
+is, skip ahead. Otherwise offer to configure it now — you can do the whole thing
+from the command line, but it needs the user's *own* Connect credentials (a
+trusted-publishing credential cannot manage trusted publishers) and they must be
+the content's owner or a collaborator who can change its settings.
+
+**1. Determine the `repository` value.** This is the repository segment of the
+`sub` (subject) claim in the OIDC tokens the repo issues, and it is *not* always
+`owner/repo`. Repositories created on or after **July 15, 2026** use [immutable
+subject claims](https://github.blog/changelog/2026-04-23-immutable-subject-claims-for-github-actions-oidc-tokens/),
+which embed GitHub's numeric owner and repo IDs (`my-org@123456/my-repo@789012`);
+older repos can opt in, and renames or transfers after that date also switch the
+format. Getting this wrong is the classic failure: the config looks right but the
+token exchange fails with an HTTP 400.
+
+Ask GitHub directly rather than guessing — this reports exactly what the repo
+produces:
+
+```bash
+gh api "repos/$ORG/$REPO/actions/oidc/customization/sub"
+# {"use_default":true,"use_immutable_subject":false,"sub_claim_prefix":"repo:my-org/my-repo"}
+```
+
+The `repository` value is `sub_claim_prefix` with the leading `repo:` stripped.
+If `sub_claim_prefix` doesn't start with `repo:` (a repo with a customized
+subject claim template), the `github-actions` publisher type can't match it —
+tell the user they need a **Custom OpenID Connect** publisher instead, and stop
+there rather than registering something that won't work.
+
+That endpoint needs admin access to the repo. If it fails with 403/404, fall
+back: get the immutable identifiers and the creation date, and use the immutable
+form when the repo was created on or after 2026-07-15 (otherwise plain
+`owner/repo`), telling the user which you chose and why.
+
+```bash
+gh api "repos/$ORG/$REPO" --jq '"\(.owner.login)@\(.owner.id)/\(.name)@\(.id)"'
+gh repo view "$ORG/$REPO" --json createdAt -q .createdAt
+```
+
+**2. Log in to Connect** as the user, if they aren't already
+(`posit connect list` shows saved servers). This is interactive, so have *them*
+run it — in Claude Code they can prefix with `!`:
+
+```bash
+posit connect login <server-url>
+```
+
+**3. Add the publisher**, using the content GUID from Step 2:
+
+```bash
+posit connect api "v1/content/$GUID/trusted-publishers" \
+  -H "Content-Type: application/json" --input - <<JSON
+{
+  "name": "GitHub Actions ($REPOSITORY)",
+  "template": "github-actions",
+  "config": {"repository": "$REPOSITORY", "audience": "connect"}
+}
+JSON
+```
+
+Confirm the exact JSON with the user before sending it. `posit connect api` uses
+the default saved server, so add `-s <server-url>` if they have more than one
+saved. A 200/201 returns the service principal; adding the same workload twice
+reuses the existing identity rather than duplicating it. Useful follow-ups:
+
+```bash
+posit connect api "v1/content/$GUID/trusted-publishers"                      # list
+posit connect api "v1/content/$GUID/trusted-publishers/$SP_GUID" -X DELETE   # revoke
+```
+
+If this fails, report the error rather than working around it: a 402 means the
+server lacks the Enhanced/Advanced license, a 403 means the account can't change
+this content's permissions, and a 404 on the path itself means the server is
+older than 2026.07.0. In each of those cases, recommend switching to Option B
+(API key) instead.
 
 ## Step 4 — Check requirements / dependency files
 
@@ -250,8 +337,11 @@ jobs:
 After writing the files, summarize what was created and the remaining manual
 steps, which depend on the auth choice:
 
-- **OIDC:** enable Trusted Publishing for this content on Connect (Source tab),
-  tied to this GitHub repo, if not already done.
+- **OIDC:** if Step 3a authorized the repository, say so and note the
+  `repository` value that was registered (so a later repo rename is a known
+  breaking change). If it was skipped, the remaining step is to enable Trusted
+  Publishing for this content on Connect (Source tab), tied to this GitHub repo,
+  using the subject-claim format from Step 3a.
 - **API key:** confirm the `CONNECT_API_KEY` secret is set on the repo.
 
 Then suggest committing the workflow(s) and opening a pull request to exercise

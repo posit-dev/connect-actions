@@ -15,7 +15,7 @@ These actions supersede the [`rstudio/actions/connect-publish`](https://github.c
 There are a few prerequisites to set up before you can use these actions:
 
 1. Deploy your content to Connect for the first time by other means. The `deploy` action here will not create a new content item for you; it will only update an existing one with new code. If you use the Publisher extension for Positron, VS Code, or other Code OSS forks, check in the `.posit/` TOML files it creates---this action can detect and use them. Otherwise, you just need the content's URL.
-2. Configure auth. If your Connect server is version 2026.07.0 or newer and has an Enhanced or Advanced license, we recommend using the Trusted Publishing feature, which allows you to publish from this GitHub repository automatically, no API keys needed. You can enable this in the "Source" tab of the content settings. If you are not using Trusted Publishing, you will need to get an API key with at least "publisher" privileges from your Connect account and add it as a GitHub Actions secret.
+2. Configure auth. If your Connect server is version 2026.07.0 or newer and has an Enhanced or Advanced license, we recommend using the Trusted Publishing feature, which allows you to publish from this GitHub repository automatically, no API keys needed. You can enable this in the "Source" tab of the content settings; see [Trusted publishing](#trusted-publishing) below for what to enter, including for repositories that use GitHub's immutable subject claims. If you are not using Trusted Publishing, you will need to get an API key with at least "publisher" privileges from your Connect account and add it as a GitHub Actions secret.
 3. Make sure the files declaring your dependencies are checked in.
    * For Python content, this can either be a `uv.lock` file or a `requirements.txt`, and if you have neither, one can be generated from a `pyproject.toml` file. (We recommend that you keep both `pyproject.toml` and one of those lockfiles and use [Dependabot](https://docs.github.com/en/code-security/dependabot) to update the lockfile on a schedule so that your content stays up to date and security vulnerabilities are resolved.)
    * For R content, use the `rsconnect::writeManifest()` function to generate a `manifest.json` file.
@@ -25,7 +25,7 @@ Then, you can add these actions. There are examples below, or you can let an AI 
 
 ## Set up with an Agent Skill
 
-This repo includes an [Agent Skill](https://agentskills.io) (`setup-connect-deploy`) that walks a coding agent through adding these workflows to your repository: it checks your prerequisites, reads your `.posit` deployment file (or asks for the server URL and content GUID), asks whether you're using Trusted Publishing or an API key, and writes the `deploy` (and optionally `cleanup-previews`) workflow for you.
+This repo includes an [Agent Skill](https://agentskills.io) (`setup-connect-deploy`) that walks a coding agent through adding these workflows to your repository: it checks your prerequisites, reads your `.posit` deployment file (or asks for the server URL and content GUID), asks whether you're using Trusted Publishing or an API key, and writes the `deploy` (and optionally `cleanup-previews`) workflow for you. If you choose Trusted Publishing, it also offers to authorize the repository on your Connect server, working out the right subject claim format for you.
 
 Agent Skills are an open standard, so any agent that supports them (Claude Code, Codex, Cursor, Gemini CLI, and others) can use it by pointing at [`skills/setup-connect-deploy/`](skills/setup-connect-deploy/SKILL.md) in this repo.
 
@@ -47,7 +47,7 @@ and adapts:
 | Feature | Minimum Connect version | On older servers |
 |---|---|---|
 | Deploying with an API key | broadly supported | — |
-| Trusted Publishing (OIDC, no API key) | **2026.07.0**, plus an **Enhanced or Advanced** license | Login fails with a clear error---provide `connect-api-key` instead |
+| [Trusted Publishing](#trusted-publishing) (OIDC, no API key) | **2026.07.0**, plus an **Enhanced or Advanced** license | Login fails with a clear error---provide `connect-api-key` instead |
 | Draft PR previews (`draft: true`, the default on pull requests) | **2025.07.0** | Deploy fails fast with a clear error---set `draft: false` to deploy directly instead of staging a preview |
 | Git provenance metadata (commit, author, branch, PR) | **2025.12.0** | Silently skipped; the deploy still succeeds, just without the metadata |
 
@@ -55,6 +55,116 @@ If your Connect administrator has hidden the server version, the action can't
 confirm support: it skips git metadata (to avoid failing the upload) and does
 not pre-check drafts or Trusted Publishing, letting those attempts surface their
 own errors if the server is too old.
+
+## Trusted publishing
+
+With [trusted publishing](https://docs.posit.co/connect/user/trusted-publishing/),
+your workflow deploys to Connect without an API key: the job requests a
+short-lived OIDC token from GitHub, and Connect exchanges it for a short-lived
+credential scoped to the single content item you authorized. In your workflow all
+this takes is `id-token: write` on the job; the rest is configured once on Connect.
+
+Authorize this repository on the content's **Source** settings: in the **Trusted
+Publishing** section, select **Add Trusted Publisher**, choose the **GitHub
+Actions** publisher type, and fill in:
+
+* **Repository** --- the repository segment of the `sub` (subject) claim in the
+  OIDC tokens your repository issues. See [Immutable subject
+  claims](#immutable-subject-claims) below for how to determine this; it is not
+  always just `owner/repo`.
+* **Audience** --- leave it at the default `connect`, which is what the actions
+  request. (If you change it, pass the same value as the `audience` input.)
+
+You must be the content's owner or a collaborator who can change its settings.
+
+### Immutable subject claims
+
+A GitHub OIDC token identifies the workflow that requested it with a `sub` claim
+like:
+
+```
+repo:my-org/my-repo:ref:refs/heads/main
+```
+
+Repositories created on or after July 15, 2026 instead use [immutable subject
+claims](https://github.blog/changelog/2026-04-23-immutable-subject-claims-for-github-actions-oidc-tokens/),
+which append GitHub's numeric owner and repository IDs so that the claim can't be
+reused by a repository that later takes the same name:
+
+```
+repo:my-org@123456/my-repo@789012:ref:refs/heads/main
+```
+
+Older repositories keep the name-only format unless they opt in (repository
+**Settings → Actions → General**, or the equivalent org-level setting), and
+repositories renamed or transferred after that date adopt the new format too.
+
+Connect accepts either form in the **Repository** field, but it has to match what
+your repository actually produces. If it doesn't, the token exchange fails with an
+HTTP 400 and the deploy action reports a Trusted Publishing login failure, even
+though the configuration looks right.
+
+The reliable way to get the value is to ask GitHub for the repository's subject
+claim prefix and strip the leading `repo:` (this needs admin access to the repo):
+
+```bash
+gh api "repos/$ORG/$REPO/actions/oidc/customization/sub" \
+  --jq '.sub_claim_prefix | ltrimstr("repo:")'
+```
+
+Without admin access, build the immutable form from the owner and repository IDs:
+
+```bash
+# From within a local clone of the repository:
+gh api "repos/$(gh repo view --json nameWithOwner -q .nameWithOwner)" \
+  --jq '"\(.owner.login)@\(.owner.id)/\(.name)@\(.id)"'
+
+# Or, for any repository by name:
+gh api "repos/$ORG/$REPO" \
+  --jq '"\(.owner.login)@\(.owner.id)/\(.name)@\(.id)"'
+```
+
+Use that immutable form if the repository was created on or after July 15, 2026
+(`gh repo view --json createdAt`) or has opted in; otherwise use plain
+`owner/repo`.
+
+### Configuring a trusted publisher from the command line
+
+Instead of using the Connect UI, you can add the trusted publisher with the
+[`posit` CLI](https://github.com/posit-dev/posit-cli), which these actions use
+under the hood. Log in with your own Connect account once---a trusted-publishing
+credential can't manage trusted publishers, so this has to be a human
+credential:
+
+```bash
+posit connect login https://connect.example.com
+```
+
+Then bind the repository to the content item, where `REPOSITORY` is the value
+determined above and `GUID` is the content GUID (the `id` field in your
+`.posit/publish/deployments/*.toml`):
+
+```bash
+posit connect api "v1/content/$GUID/trusted-publishers" \
+  -H "Content-Type: application/json" --input - <<JSON
+{
+  "name": "GitHub Actions ($REPOSITORY)",
+  "template": "github-actions",
+  "config": {"repository": "$REPOSITORY", "audience": "connect"}
+}
+JSON
+```
+
+Adding the same workload again reuses the existing identity rather than creating
+a duplicate. To see what's authorized, or to revoke it:
+
+```bash
+posit connect api "v1/content/$GUID/trusted-publishers"
+posit connect api "v1/content/$GUID/trusted-publishers/$SP_GUID" -X DELETE
+```
+
+The bundled [Agent Skill](#set-up-with-an-agent-skill) can do all of this for
+you, including reading the subject claim format from GitHub.
 
 ## Actions
 
@@ -90,7 +200,7 @@ The action requires two things at minimum: the destination to deploy to (Connect
 
 To identify the destination, you can either provide `connect-server` and `content-guid` directly as arguments, or you can provide a path to the `deployment-file`, the TOML file written out by Posit Publisher. If you omit all three of these, the action will look in the `.posit/publish/deployments/` directory and if there is a single deployment file in there, it will use that. If there are zero deployment files or more than one, you will need to provide the URL and GUID as arguments to the action. 
 
-For authentication, we recommend using Trusted Publishing if your Connect server supports it. You do not need to provide any secrets for this to work, once you have enabled it for your content on your Connect server, but you do need to add `id-token: write` to the `permissions` block of your workflow job. If Trusted Publishing is not an option, you can provide `connect-api-key`, which should point to `${{ secrets.CONNECT_API_KEY }}` or similar---do not enter an API key in your workflow file directly. 
+For authentication, we recommend using [Trusted Publishing](#trusted-publishing) if your Connect server supports it. You do not need to provide any secrets for this to work, once you have enabled it for your content on your Connect server, but you do need to add `id-token: write` to the `permissions` block of your workflow job. If Trusted Publishing is not an option, you can provide `connect-api-key`, which should point to `${{ secrets.CONNECT_API_KEY }}` or similar---do not enter an API key in your workflow file directly. 
 
 #### Requirements files
 
