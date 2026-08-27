@@ -482,8 +482,7 @@ against unreleased code -- verifying a fix before it ships -- set `use-dev-cli`:
 
 That installs both packages from their GitHub `main` branches. Builds are then
 **not reproducible**, since `main` moves between runs, and installing from git
-adds a source build to every job, so don't leave it on in production. The action
-logs a warning and the exact versions it resolved on every run that uses it.
+adds a source build to every job, so don't leave it on in production.
 
 If you deploy previews, pass `use-dev-cli` to `cleanup-previews` too, so both
 halves of the PR lifecycle run against the same CLI.

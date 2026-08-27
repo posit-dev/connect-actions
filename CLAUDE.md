@@ -29,16 +29,13 @@ This logic lives in `src/connect_actions/config.py` (`resolve_config()`), invoke
 ### Shared install pattern
 
 Both actions install the `posit` CLI through `scripts/install-posit-cli.sh`,
-which defaults to PyPI (`posit-cli>=0.1.1` -- the floor is the oldest release
-with `login --identity-token`, `api --paginate`, and `deploy --metadata`). The
-`use-dev-cli` input on both actions (plumbed through as `USE_DEV_CLI`) switches
-both packages to their GitHub `main` branches, logging a `::warning::` because
-`main` moves between runs; anything other than true/false/empty is rejected
-rather than silently treated as off. rsconnect-python goes in via `uv tool
-install --with`, where a direct reference beats the version range `posit-cli`
-declares (it must still satisfy that range, so a major bump upstream surfaces as
-a uv resolution error). It's deliberately one boolean, not a set of
-version-pinning knobs: dev or not.
+which installs the latest release from PyPI. The `use-dev-cli` input on both
+actions (plumbed through as `USE_DEV_CLI`) switches both packages to their
+GitHub `main` branches; anything else installs the released CLI.
+rsconnect-python goes in via `uv tool install --with`, where a direct reference
+beats the version range `posit-cli` declares (it must still satisfy that range,
+so a major bump upstream surfaces as a uv resolution error). The script is
+deliberately ten lines with no version-pinning knobs: dev or not.
 
 ### Shared login pattern
 
