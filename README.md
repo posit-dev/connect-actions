@@ -482,43 +482,8 @@ against unreleased code -- verifying a fix before it ships -- set `use-dev-cli`:
 
 That installs both packages from their GitHub `main` branches. Builds are then
 **not reproducible**, since `main` moves between runs, and installing from git
-adds a source build to every job, so don't leave it on in production. The
-action logs a warning and the exact versions it resolved on every run that uses
-it.
+adds a source build to every job, so don't leave it on in production. The action
+logs a warning and the exact versions it resolved on every run that uses it.
 
 If you deploy previews, pass `use-dev-cli` to `cleanup-previews` too, so both
 halves of the PR lifecycle run against the same CLI.
-
-### Pinning an exact version
-
-For finer control -- one package but not the other, a topic branch, or a commit
-SHA so a run is reproducible -- set either of these environment variables on
-the job or the step:
-
-| Variable | Meaning |
-|---|---|
-| `POSIT_CLI_SPEC` | What to install as the CLI. Any `uv`-installable requirement, e.g. `posit-cli==0.1.1` or `git+https://github.com/posit-dev/posit-cli@my-branch`. |
-| `RSCONNECT_PYTHON_SPEC` | A full requirement pulled into the CLI's environment, overriding the `rsconnect-python` the CLI would otherwise resolve. Note that this is a full requirement, not a bare URL, e.g. `rsconnect-python @ git+https://github.com/posit-dev/rsconnect-python@my-branch`. |
-
-These take precedence over `use-dev-cli`, so you can combine them: the example
-below tests dev `rsconnect-python` against the released CLI, without setting
-`use-dev-cli` at all.
-
-```yaml
-      - uses: posit-dev/connect-actions/deploy@main
-        env:
-          RSCONNECT_PYTHON_SPEC: >-
-            rsconnect-python @
-            git+https://github.com/posit-dev/rsconnect-python@0123abc
-        with:
-          connect-server: https://connect.example.com
-```
-
-The version you pin still has to satisfy the range `posit-cli` declares for
-`rsconnect-python`; if it does not, `uv` fails the install with a resolution
-error. Point `UV_OVERRIDE` at a requirements file to force it through:
-
-```yaml
-        env:
-          UV_OVERRIDE: overrides.txt
-```
