@@ -7,7 +7,9 @@ explicit ``@main``, which a bare git URL would silently turn into "whatever
 upstream's default branch is" -- without a network install on every run.
 
 USE_DEV_CLI arrives from an action input, so it is an arbitrary string rather
-than a boolean; the classification tests below cover that.
+than a boolean. Only ``true``, ``false`` and empty are accepted -- GitHub renders
+YAML booleans as lowercase, and anything else is more likely a typo than an
+intent, so it fails the step rather than defaulting to the released CLI.
 """
 
 from __future__ import annotations
@@ -69,7 +71,7 @@ def test_default_installs_released_cli_from_pypi(fake_bin):
     assert "git+" not in " ".join(argv)
 
 
-@pytest.mark.parametrize("value", ["false", "0", "no", "", "FALSE"])
+@pytest.mark.parametrize("value", ["false", ""])
 def test_off_values_install_from_pypi(fake_bin, value):
     proc, argv = run(fake_bin, value)
 
@@ -77,7 +79,7 @@ def test_off_values_install_from_pypi(fake_bin, value):
     assert argv == ["tool", "install", PYPI_SPEC]
 
 
-@pytest.mark.parametrize("value", ["true", "1", "yes", "TRUE", "True"])
+@pytest.mark.parametrize("value", ["true"])
 def test_on_values_install_both_packages_from_main(fake_bin, value):
     proc, argv = run(fake_bin, value)
 
@@ -88,7 +90,9 @@ def test_on_values_install_both_packages_from_main(fake_bin, value):
     assert "::warning::" in proc.stdout
 
 
-@pytest.mark.parametrize("value", ["ture", "maybe", "y", "-1", "true false"])
+@pytest.mark.parametrize(
+    "value", ["ture", "maybe", "yes", "1", "0", "no", "TRUE", "True", "true false"]
+)
 def test_unrecognized_value_fails_without_installing(fake_bin, value):
     # The dangerous failure is installing the *released* CLI when the caller
     # asked for dev, so an unparseable value must stop the step, not fall back.

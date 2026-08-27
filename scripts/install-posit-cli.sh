@@ -1,47 +1,37 @@
 #!/usr/bin/env bash
-# Install the `posit` CLI. Both actions call this instead of running
-# `uv tool install` inline, so there is one place that decides where the CLI
-# and its rsconnect-python dependency come from.
+# Install the `posit` CLI. A script rather than inline YAML only because both
+# actions call it, so the specs and the version floor live in one place.
 #
-# By default both come from PyPI. When the actions' `use-dev-cli` input is true
-# (passed in as USE_DEV_CLI), both come from their `main` branches on GitHub
-# instead, to test unreleased fixes.
+# USE_DEV_CLI is the actions' `use-dev-cli` input. Off, posit-cli and its
+# rsconnect-python dependency come from PyPI; on, both come from `main` on
+# GitHub, to test unreleased fixes.
 
 set -euo pipefail
 
-# The floor is the oldest release carrying everything the actions call:
-# `posit connect login --identity-token`, `api --paginate`, `deploy --metadata`.
-CLI_SPEC="posit-cli>=0.1.1"
-WITH_ARGS=()
-
-# An unset input arrives as the empty string, so treat that as off. Anything
-# that is neither on nor off is a typo worth failing on -- silently installing
-# the released CLI when the caller asked for dev would be worse.
-case "$(printf '%s' "${USE_DEV_CLI:-}" | tr '[:upper:]' '[:lower:]')" in
-  true | 1 | yes)
+# An unset input arrives as the empty string. Anything that is neither true nor
+# false is a typo worth failing on -- silently installing the released CLI when
+# the caller asked for dev would be worse.
+case "${USE_DEV_CLI:-}" in
+  true)
     echo "::warning::use-dev-cli is set: installing unreleased posit-cli and rsconnect-python from GitHub main. Builds are not reproducible, since main moves between runs."
-    CLI_SPEC="git+https://github.com/posit-dev/posit-cli@main"
-    # `@main` is explicit on purpose: a bare git URL would follow whichever
-    # branch is upstream's default, so a rename would silently install a ref
-    # other than the one documented here.
-    #
-    # `--with` puts rsconnect-python in the same tool environment, where a
-    # direct reference beats the version range posit-cli declares. It does still
-    # have to satisfy that range, so a major bump upstream will surface here as
-    # a uv resolution error.
-    WITH_ARGS=(--with "rsconnect-python @ git+https://github.com/posit-dev/rsconnect-python@main")
+    # `@main` is explicit on purpose: a bare git URL follows whichever branch is
+    # upstream's default, so a rename would quietly install a different ref.
+    # `--with` puts rsconnect-python in the same tool environment, where a direct
+    # reference beats the version range posit-cli declares (it must still satisfy
+    # that range, so a major bump upstream surfaces as a uv resolution error).
+    uv tool install \
+      --with "rsconnect-python @ git+https://github.com/posit-dev/rsconnect-python@main" \
+      "git+https://github.com/posit-dev/posit-cli@main"
     ;;
-  '' | false | 0 | no) ;;
+  false | '')
+    # The floor is the oldest release carrying everything the actions call:
+    # `posit connect login --identity-token`, `api --paginate`, `deploy --metadata`.
+    uv tool install "posit-cli>=0.1.1"
+    ;;
   *)
     echo "::error::use-dev-cli must be 'true' or 'false', got '${USE_DEV_CLI}'."
     exit 1
     ;;
 esac
-
-echo "Installing posit CLI from: $CLI_SPEC"
-# `${a[@]+"${a[@]}"}` rather than `"${a[@]}"`: under `set -u`, expanding an
-# empty array is an unbound-variable error on bash 3.2, which is what
-# /bin/bash is on macOS runners.
-uv tool install ${WITH_ARGS[@]+"${WITH_ARGS[@]}"} "$CLI_SPEC"
 
 posit --version
