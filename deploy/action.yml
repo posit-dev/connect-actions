@@ -44,6 +44,12 @@ inputs:
     description: Additional arguments to pass to rsconnect deploy (entrypoint can be read from deployment-file)
     required: false
     default: ''
+  use-dev-cli:
+    description: >-
+      Install posit-cli and rsconnect-python from their GitHub main branches
+      instead of PyPI to test unreleased fixes.
+    required: false
+    default: 'false'
 
 outputs:
   content-url:
@@ -58,7 +64,9 @@ runs:
 
     - name: Set up posit CLI
       shell: bash
-      run: uv tool install "git+https://github.com/posit-dev/posit-cli"
+      run: ${{ github.action_path }}/../scripts/install-posit-cli.sh
+      env:
+        USE_DEV_CLI: ${{ inputs.use-dev-cli }}
 
     - name: Resolve deployment configuration
       id: config

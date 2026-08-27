@@ -187,6 +187,7 @@ Here are the full list of inputs and outputs; below we describe what exactly is 
 | `draft` | No | Deploy as a draft (preview) bundle instead of activating it. Defaults to `true` on `pull_request` events and `false` otherwise. Set it explicitly to override--e.g. `false` to publish directly from a PR, or `true` to stage a draft from a push. |
 | `github-token` | No | GitHub token for commenting preview URLs on PRs |
 | `rsconnect-args` | No | Additional arguments passed to `rsconnect deploy`. |
+| `use-dev-cli` | No | Install `posit-cli` and `rsconnect-python` from their GitHub `main` branches instead of PyPI, to test unreleased fixes. Defaults to `false`. |
 
 #### Outputs
 
@@ -404,6 +405,7 @@ The example below also includes a `workflow_dispatch` trigger, which can be used
 | `audience` | No | Audience to request for the OIDC token when `connect-api-key` is omitted. Must match the trusted publisher's audience on Connect. Defaults to `connect`. |
 | `connect-server` | No | Connect server URL. Only needed to disambiguate when a PR has previews on more than one server (run one cleanup step per server). Otherwise it is inferred from the preview comment. |
 | `github-token` | Yes | GitHub token for reading/commenting on PRs |
+| `use-dev-cli` | No | Install `posit-cli` and `rsconnect-python` from their GitHub `main` branches instead of PyPI, to test unreleased fixes. Defaults to `false`. |
 
 The server, content GUID, and bundle IDs to delete are read from the preview
 comments the `deploy` action leaves on the PR, so cleanup needs no deployment
