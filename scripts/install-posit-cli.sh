@@ -20,12 +20,16 @@ WITH_ARGS=()
 case "$(printf '%s' "${USE_DEV_CLI:-}" | tr '[:upper:]' '[:lower:]')" in
   true | 1 | yes)
     echo "::warning::use-dev-cli is set: installing unreleased posit-cli and rsconnect-python from GitHub main. Builds are not reproducible, since main moves between runs."
-    CLI_SPEC="git+https://github.com/posit-dev/posit-cli"
+    CLI_SPEC="git+https://github.com/posit-dev/posit-cli@main"
+    # `@main` is explicit on purpose: a bare git URL would follow whichever
+    # branch is upstream's default, so a rename would silently install a ref
+    # other than the one documented here.
+    #
     # `--with` puts rsconnect-python in the same tool environment, where a
     # direct reference beats the version range posit-cli declares. It does still
     # have to satisfy that range, so a major bump upstream will surface here as
     # a uv resolution error.
-    WITH_ARGS=(--with "rsconnect-python @ git+https://github.com/posit-dev/rsconnect-python")
+    WITH_ARGS=(--with "rsconnect-python @ git+https://github.com/posit-dev/rsconnect-python@main")
     ;;
   '' | false | 0 | no) ;;
   *)
@@ -35,6 +39,9 @@ case "$(printf '%s' "${USE_DEV_CLI:-}" | tr '[:upper:]' '[:lower:]')" in
 esac
 
 echo "Installing posit CLI from: $CLI_SPEC"
-uv tool install "${WITH_ARGS[@]}" "$CLI_SPEC"
+# `${a[@]+"${a[@]}"}` rather than `"${a[@]}"`: under `set -u`, expanding an
+# empty array is an unbound-variable error on bash 3.2, which is what
+# /bin/bash is on macOS runners.
+uv tool install ${WITH_ARGS[@]+"${WITH_ARGS[@]}"} "$CLI_SPEC"
 
 posit --version
