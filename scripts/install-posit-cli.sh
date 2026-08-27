@@ -14,22 +14,10 @@
 #                          "rsconnect-python @ git+https://github.com/posit-dev/rsconnect-python@my-branch"
 #
 # Both are read from the environment, so a caller can set them under `env:` at
-# the job or step level without the actions exposing an input for them. The
-# `dev` branch of this repo ships a scripts/dev-refs.env that sets them to the
-# development sources; see the "Dev channel" section of the README.
+# the job or step level without the actions exposing an input for them. See
+# "Using unreleased posit-cli or rsconnect-python" in the README.
 
 set -euo pipefail
-
-# Sourced, not merged: main has no dev-refs.env, so the dev branch is always
-# exactly main plus this one generated file and can never conflict with it.
-# Anything already set in the environment wins, so a caller can still point at
-# a specific branch or commit while using the dev channel.
-DEV_REFS="$(dirname "${BASH_SOURCE[0]}")/dev-refs.env"
-if [ -f "$DEV_REFS" ]; then
-  echo "Using dev package sources from $DEV_REFS"
-  # shellcheck disable=SC1090
-  . "$DEV_REFS"
-fi
 
 # The floor is the oldest release carrying everything the actions call:
 # `posit connect login --identity-token`, `api --paginate`, `deploy --metadata`.

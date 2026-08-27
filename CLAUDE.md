@@ -26,7 +26,7 @@ Both actions resolve Connect server URL and content GUID through the same 3-tier
 
 This logic lives in `src/connect_actions/config.py` (`resolve_config()`), invoked by both actions via `uv run --project ${{ github.action_path }}/.. python -m connect_actions.cli resolve-config`. The pure functions parse TOML with stdlib `tomllib` and return a `Config`; the thin `cli.py` layer reads `INPUT_*` env vars and writes `GITHUB_OUTPUT`. Deploy uses the `entrypoint` field from the TOML `[configuration]` section (cleanup-previews ignores it) and its `extra_files`, derived from the `[configuration].files` array: every declared file minus the entrypoint, `requirements.txt`, and anything under `.posit/`. These are the supplementary sources a single-file entrypoint won't auto-bundle (e.g. a `.py` a Quarto document imports); the deploy step passes them to `posit connect deploy quarto` as trailing `EXTRA_FILES` positionals. `extra_files` is emitted as a newline-delimited multi-line `GITHUB_OUTPUT` value so filenames may contain spaces.
 
-### Shared install pattern and the dev channel
+### Shared install pattern
 
 Both actions install the `posit` CLI through `scripts/install-posit-cli.sh`,
 which defaults to PyPI (`posit-cli>=0.1.1` -- the floor is the oldest release
@@ -36,13 +36,6 @@ actions exposing an input: `POSIT_CLI_SPEC` (what to install) and
 `RSCONNECT_PYTHON_SPEC` (a full requirement passed as `uv tool install --with`,
 which beats the range `posit-cli` declares; if the dev version falls outside
 that range, `UV_OVERRIDE` is the escape hatch).
-
-The `dev` branch is the delivery channel for those overrides: it is `main` plus
-a generated `scripts/dev-refs.env` that sets both vars to the GitHub `main` of
-each package, which the install script sources when present. It is rebuilt from
-scratch by `.github/workflows/dev-channel.yml` on every push to `main` -- never
-merged forward -- so it cannot conflict with or lag behind `main`. Do not commit
-`scripts/dev-refs.env` to `main`; that would make `main` the dev channel.
 
 ### Shared login pattern
 

@@ -2,7 +2,3 @@
 __pycache__/
 .pytest_cache/
 *.egg-info/
-
-# Written only on the generated `dev` branch (see .github/workflows/dev-channel.yml).
-# Ignored so a local experiment with dev package sources can't land on `main`.
-scripts/dev-refs.env

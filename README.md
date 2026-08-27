@@ -465,33 +465,12 @@ A Connect API key is scoped to one server, so pair each key with its
 With OIDC you still need one step per server (each exchanges a token for that
 server), but you only pass `connect-server`, not a key.
 
-## Dev channel
+## Using unreleased posit-cli or rsconnect-python
 
 Both actions install the [`posit` CLI](https://github.com/posit-dev/posit-cli)
 from PyPI, and the CLI pulls `rsconnect-python` from PyPI in turn. To test
-against unreleased versions of either, change `@main` to `@dev` in your `uses:`
-line:
-
-```yaml
-      - uses: posit-dev/connect-actions/deploy@dev
-```
-
-The `dev` branch is the current `main` plus one generated file that points the
-install step at the `main` branch of `posit-cli` and `rsconnect-python` on
-GitHub. It is rebuilt from scratch by
-[`.github/workflows/dev-channel.yml`](.github/workflows/dev-channel.yml) on
-every push to `main`, so it never lags behind and never needs merging.
-
-Two things to know before using it: builds are **not reproducible**, since the
-same workflow run twice can pick up different upstream commits; and building
-from git adds a source build to every job.
-
-### Pinning a specific version
-
-For finer control -- bisecting a regression, or testing one package's branch
-without the other's -- set either of these environment variables on the job or
-step. They are read by the install step directly, so they work on `@main` as
-well as `@dev`, and they take precedence over the `dev` branch's defaults:
+against unreleased code -- verifying a fix before it ships, or bisecting a
+regression -- set either of these environment variables on the job or the step:
 
 | Variable | Meaning |
 |---|---|
@@ -503,10 +482,16 @@ well as `@dev`, and they take precedence over the `dev` branch's defaults:
         env:
           RSCONNECT_PYTHON_SPEC: >-
             rsconnect-python @
-            git+https://github.com/posit-dev/rsconnect-python@0123abc
+            git+https://github.com/posit-dev/rsconnect-python@main
         with:
           connect-server: https://connect.example.com
 ```
+
+Set them independently: pointing `RSCONNECT_PYTHON_SPEC` at a branch while
+leaving `POSIT_CLI_SPEC` alone tests dev `rsconnect-python` against the
+released CLI. Prefer a commit SHA over `main` when you need the run to be
+reproducible, since `main` moves under you between runs. Installing from git
+also adds a source build to every job.
 
 The version you pin still has to satisfy the range `posit-cli` declares for
 `rsconnect-python`; if it does not, `uv` fails the install with a resolution
