@@ -47,8 +47,7 @@ inputs:
   use-dev-cli:
     description: >-
       Install posit-cli and rsconnect-python from their GitHub main branches
-      instead of PyPI, to test unreleased fixes. Builds are not reproducible,
-      since main moves between runs; don't leave this on in production.
+      instead of PyPI to test unreleased fixes.
     required: false
     default: 'false'
 

@@ -187,7 +187,7 @@ Here are the full list of inputs and outputs; below we describe what exactly is 
 | `draft` | No | Deploy as a draft (preview) bundle instead of activating it. Defaults to `true` on `pull_request` events and `false` otherwise. Set it explicitly to override--e.g. `false` to publish directly from a PR, or `true` to stage a draft from a push. |
 | `github-token` | No | GitHub token for commenting preview URLs on PRs |
 | `rsconnect-args` | No | Additional arguments passed to `rsconnect deploy`. |
-| `use-dev-cli` | No | Install `posit-cli` and `rsconnect-python` from their GitHub `main` branches instead of PyPI, to test unreleased fixes. Defaults to `false`. See [Using unreleased posit-cli or rsconnect-python](#using-unreleased-posit-cli-or-rsconnect-python). |
+| `use-dev-cli` | No | Install `posit-cli` and `rsconnect-python` from their GitHub `main` branches instead of PyPI, to test unreleased fixes. Defaults to `false`. |
 
 #### Outputs
 
@@ -405,7 +405,7 @@ The example below also includes a `workflow_dispatch` trigger, which can be used
 | `audience` | No | Audience to request for the OIDC token when `connect-api-key` is omitted. Must match the trusted publisher's audience on Connect. Defaults to `connect`. |
 | `connect-server` | No | Connect server URL. Only needed to disambiguate when a PR has previews on more than one server (run one cleanup step per server). Otherwise it is inferred from the preview comment. |
 | `github-token` | Yes | GitHub token for reading/commenting on PRs |
-| `use-dev-cli` | No | Install `posit-cli` and `rsconnect-python` from their GitHub `main` branches instead of PyPI, to test unreleased fixes. Defaults to `false`. See [Using unreleased posit-cli or rsconnect-python](#using-unreleased-posit-cli-or-rsconnect-python). |
+| `use-dev-cli` | No | Install `posit-cli` and `rsconnect-python` from their GitHub `main` branches instead of PyPI, to test unreleased fixes. Defaults to `false`. |
 
 The server, content GUID, and bundle IDs to delete are read from the preview
 comments the `deploy` action leaves on the PR, so cleanup needs no deployment
@@ -466,23 +466,3 @@ A Connect API key is scoped to one server, so pair each key with its
 
 With OIDC you still need one step per server (each exchanges a token for that
 server), but you only pass `connect-server`, not a key.
-
-## Using unreleased posit-cli or rsconnect-python
-
-Both actions install the [`posit` CLI](https://github.com/posit-dev/posit-cli)
-from PyPI, and the CLI pulls `rsconnect-python` from PyPI in turn. To test
-against unreleased code -- verifying a fix before it ships -- set `use-dev-cli`:
-
-```yaml
-      - uses: posit-dev/connect-actions/deploy@main
-        with:
-          use-dev-cli: true
-          connect-server: https://connect.example.com
-```
-
-That installs both packages from their GitHub `main` branches. Builds are then
-**not reproducible**, since `main` moves between runs, and installing from git
-adds a source build to every job, so don't leave it on in production.
-
-If you deploy previews, pass `use-dev-cli` to `cleanup-previews` too, so both
-halves of the PR lifecycle run against the same CLI.
