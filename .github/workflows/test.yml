@@ -59,7 +59,7 @@ jobs:
         working-directory: tests/e2e/quarto-doc
         run: |
           set -euo pipefail
-          uvx --from "git+https://github.com/posit-dev/rsconnect-python" \
+          uvx --from rsconnect-python \
             rsconnect write-manifest quarto \
             --overwrite \
             report.qmd \
@@ -129,7 +129,7 @@ jobs:
       # Connect through `posit connect api`, which reads CONNECT_SERVER /
       # CONNECT_API_KEY from the environment -- no login needed.
       - name: Set up posit CLI
-        run: uv tool install "git+https://github.com/posit-dev/posit-cli"
+        run: ./scripts/install-posit-cli.sh
 
       # Delete this leg's own leftover preview/cleanup comments from earlier runs
       # before deploying. Each run creates fresh content GUIDs (so the deploy
@@ -228,7 +228,7 @@ jobs:
       - name: Generate manifest for fixture app
         run: |
           set -euo pipefail
-          uvx --from "git+https://github.com/posit-dev/rsconnect-python" \
+          uvx --from rsconnect-python \
             rsconnect write-manifest fastapi \
             --overwrite \
             --entrypoint app:app \

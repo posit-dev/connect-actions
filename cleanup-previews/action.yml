@@ -35,7 +35,7 @@ runs:
 
     - name: Set up posit CLI
       shell: bash
-      run: uv tool install "git+https://github.com/posit-dev/posit-cli"
+      run: ${{ github.action_path }}/../scripts/install-posit-cli.sh
 
     # Read the PR's preview comments and work out which bundles to delete on
     # which server. The deploy action embeds everything we need in the preview

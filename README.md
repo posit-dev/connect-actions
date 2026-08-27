@@ -464,3 +464,55 @@ A Connect API key is scoped to one server, so pair each key with its
 
 With OIDC you still need one step per server (each exchanges a token for that
 server), but you only pass `connect-server`, not a key.
+
+## Dev channel
+
+Both actions install the [`posit` CLI](https://github.com/posit-dev/posit-cli)
+from PyPI, and the CLI pulls `rsconnect-python` from PyPI in turn. To test
+against unreleased versions of either, change `@main` to `@dev` in your `uses:`
+line:
+
+```yaml
+      - uses: posit-dev/connect-actions/deploy@dev
+```
+
+The `dev` branch is the current `main` plus one generated file that points the
+install step at the `main` branch of `posit-cli` and `rsconnect-python` on
+GitHub. It is rebuilt from scratch by
+[`.github/workflows/dev-channel.yml`](.github/workflows/dev-channel.yml) on
+every push to `main`, so it never lags behind and never needs merging.
+
+Two things to know before using it: builds are **not reproducible**, since the
+same workflow run twice can pick up different upstream commits; and building
+from git adds a source build to every job.
+
+### Pinning a specific version
+
+For finer control -- bisecting a regression, or testing one package's branch
+without the other's -- set either of these environment variables on the job or
+step. They are read by the install step directly, so they work on `@main` as
+well as `@dev`, and they take precedence over the `dev` branch's defaults:
+
+| Variable | Meaning |
+|---|---|
+| `POSIT_CLI_SPEC` | What to install as the CLI. Any `uv`-installable requirement, e.g. `posit-cli==0.1.1` or `git+https://github.com/posit-dev/posit-cli@my-branch`. |
+| `RSCONNECT_PYTHON_SPEC` | A full requirement pulled into the CLI's environment, overriding the `rsconnect-python` the CLI would otherwise resolve. Note that this is a full requirement, not a bare URL, e.g. `rsconnect-python @ git+https://github.com/posit-dev/rsconnect-python@my-branch`. |
+
+```yaml
+      - uses: posit-dev/connect-actions/deploy@main
+        env:
+          RSCONNECT_PYTHON_SPEC: >-
+            rsconnect-python @
+            git+https://github.com/posit-dev/rsconnect-python@0123abc
+        with:
+          connect-server: https://connect.example.com
+```
+
+The version you pin still has to satisfy the range `posit-cli` declares for
+`rsconnect-python`; if it does not, `uv` fails the install with a resolution
+error. Point `UV_OVERRIDE` at a requirements file to force it through:
+
+```yaml
+        env:
+          UV_OVERRIDE: overrides.txt
+```

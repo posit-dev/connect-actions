@@ -58,7 +58,7 @@ runs:
 
     - name: Set up posit CLI
       shell: bash
-      run: uv tool install "git+https://github.com/posit-dev/posit-cli"
+      run: ${{ github.action_path }}/../scripts/install-posit-cli.sh
 
     - name: Resolve deployment configuration
       id: config
