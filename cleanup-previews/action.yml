@@ -26,6 +26,13 @@ inputs:
   github-token:
     description: GitHub token for reading/commenting on PRs
     required: true
+  use-dev-cli:
+    description: >-
+      Install posit-cli and rsconnect-python from their GitHub main branches
+      instead of PyPI, to test unreleased fixes. Builds are not reproducible,
+      since main moves between runs; don't leave this on in production.
+    required: false
+    default: 'false'
 
 runs:
   using: composite
@@ -36,6 +43,8 @@ runs:
     - name: Set up posit CLI
       shell: bash
       run: ${{ github.action_path }}/../scripts/install-posit-cli.sh
+      env:
+        USE_DEV_CLI: ${{ inputs.use-dev-cli }}
 
     # Read the PR's preview comments and work out which bundles to delete on
     # which server. The deploy action embeds everything we need in the preview

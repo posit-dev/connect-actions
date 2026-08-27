@@ -31,11 +31,16 @@ This logic lives in `src/connect_actions/config.py` (`resolve_config()`), invoke
 Both actions install the `posit` CLI through `scripts/install-posit-cli.sh`,
 which defaults to PyPI (`posit-cli>=0.1.1` -- the floor is the oldest release
 with `login --identity-token`, `api --paginate`, and `deploy --metadata`). The
-script reads two env vars so a caller can swap in unreleased code without the
-actions exposing an input: `POSIT_CLI_SPEC` (what to install) and
-`RSCONNECT_PYTHON_SPEC` (a full requirement passed as `uv tool install --with`,
-which beats the range `posit-cli` declares; if the dev version falls outside
-that range, `UV_OVERRIDE` is the escape hatch).
+script offers two ways to install unreleased code. The `use-dev-cli` input
+(both actions; plumbed through as `USE_DEV_CLI`) switches both packages to their
+GitHub `main` branches and logs a `::warning::`; anything other than
+true/false/empty is rejected rather than silently treated as off. For finer
+control, two env vars pin either package exactly: `POSIT_CLI_SPEC` (what to
+install) and `RSCONNECT_PYTHON_SPEC` (a full requirement passed as `uv tool
+install --with`, which beats the range `posit-cli` declares; if it falls outside
+that range, `UV_OVERRIDE` is the escape hatch). The env vars take precedence
+over `use-dev-cli`, and are deliberately not inputs -- one-off pinning shouldn't
+widen the actions' documented surface.
 
 ### Shared login pattern
 

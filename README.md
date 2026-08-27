@@ -187,6 +187,7 @@ Here are the full list of inputs and outputs; below we describe what exactly is 
 | `draft` | No | Deploy as a draft (preview) bundle instead of activating it. Defaults to `true` on `pull_request` events and `false` otherwise. Set it explicitly to override--e.g. `false` to publish directly from a PR, or `true` to stage a draft from a push. |
 | `github-token` | No | GitHub token for commenting preview URLs on PRs |
 | `rsconnect-args` | No | Additional arguments passed to `rsconnect deploy`. |
+| `use-dev-cli` | No | Install `posit-cli` and `rsconnect-python` from their GitHub `main` branches instead of PyPI, to test unreleased fixes. Defaults to `false`. See [Using unreleased posit-cli or rsconnect-python](#using-unreleased-posit-cli-or-rsconnect-python). |
 
 #### Outputs
 
@@ -404,6 +405,7 @@ The example below also includes a `workflow_dispatch` trigger, which can be used
 | `audience` | No | Audience to request for the OIDC token when `connect-api-key` is omitted. Must match the trusted publisher's audience on Connect. Defaults to `connect`. |
 | `connect-server` | No | Connect server URL. Only needed to disambiguate when a PR has previews on more than one server (run one cleanup step per server). Otherwise it is inferred from the preview comment. |
 | `github-token` | Yes | GitHub token for reading/commenting on PRs |
+| `use-dev-cli` | No | Install `posit-cli` and `rsconnect-python` from their GitHub `main` branches instead of PyPI, to test unreleased fixes. Defaults to `false`. See [Using unreleased posit-cli or rsconnect-python](#using-unreleased-posit-cli-or-rsconnect-python). |
 
 The server, content GUID, and bundle IDs to delete are read from the preview
 comments the `deploy` action leaves on the PR, so cleanup needs no deployment
@@ -469,29 +471,48 @@ server), but you only pass `connect-server`, not a key.
 
 Both actions install the [`posit` CLI](https://github.com/posit-dev/posit-cli)
 from PyPI, and the CLI pulls `rsconnect-python` from PyPI in turn. To test
-against unreleased code -- verifying a fix before it ships, or bisecting a
-regression -- set either of these environment variables on the job or the step:
+against unreleased code -- verifying a fix before it ships -- set `use-dev-cli`:
+
+```yaml
+      - uses: posit-dev/connect-actions/deploy@main
+        with:
+          use-dev-cli: true
+          connect-server: https://connect.example.com
+```
+
+That installs both packages from their GitHub `main` branches. Builds are then
+**not reproducible**, since `main` moves between runs, and installing from git
+adds a source build to every job, so don't leave it on in production. The
+action logs a warning and the exact versions it resolved on every run that uses
+it.
+
+If you deploy previews, pass `use-dev-cli` to `cleanup-previews` too, so both
+halves of the PR lifecycle run against the same CLI.
+
+### Pinning an exact version
+
+For finer control -- one package but not the other, a topic branch, or a commit
+SHA so a run is reproducible -- set either of these environment variables on
+the job or the step:
 
 | Variable | Meaning |
 |---|---|
 | `POSIT_CLI_SPEC` | What to install as the CLI. Any `uv`-installable requirement, e.g. `posit-cli==0.1.1` or `git+https://github.com/posit-dev/posit-cli@my-branch`. |
 | `RSCONNECT_PYTHON_SPEC` | A full requirement pulled into the CLI's environment, overriding the `rsconnect-python` the CLI would otherwise resolve. Note that this is a full requirement, not a bare URL, e.g. `rsconnect-python @ git+https://github.com/posit-dev/rsconnect-python@my-branch`. |
 
+These take precedence over `use-dev-cli`, so you can combine them: the example
+below tests dev `rsconnect-python` against the released CLI, without setting
+`use-dev-cli` at all.
+
 ```yaml
       - uses: posit-dev/connect-actions/deploy@main
         env:
           RSCONNECT_PYTHON_SPEC: >-
             rsconnect-python @
-            git+https://github.com/posit-dev/rsconnect-python@main
+            git+https://github.com/posit-dev/rsconnect-python@0123abc
         with:
           connect-server: https://connect.example.com
 ```
-
-Set them independently: pointing `RSCONNECT_PYTHON_SPEC` at a branch while
-leaving `POSIT_CLI_SPEC` alone tests dev `rsconnect-python` against the
-released CLI. Prefer a commit SHA over `main` when you need the run to be
-reproducible, since `main` moves under you between runs. Installing from git
-also adds a source build to every job.
 
 The version you pin still has to satisfy the range `posit-cli` declares for
 `rsconnect-python`; if it does not, `uv` fails the install with a resolution
