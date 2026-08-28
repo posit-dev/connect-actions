@@ -389,6 +389,143 @@ either multi-server pattern above.
           path: apps/app2
 ```
 
+Every app deploys on every run this way, which is fine for a few apps. For a
+monorepo with many, deploy only the ones a commit touched---see
+[the next section](#monorepos-deploy-only-the-apps-that-changed).
+
+#### Monorepos: deploy only the apps that changed
+
+Listing every app as its own step stops working once you have more than a
+handful, and redeploying all of them on every commit doesn't scale at all. 
+Instead, you can have one job that works out which app directories the commit
+touched and emits them as JSON, and a second job that fans out over that list with a
+matrix, running one deploy per app.
+
+The example assumes a flat repository---every top-level directory is one piece of
+content---and that each app directory carries its own Publisher deployment file
+(`<app>/.posit/publish/deployments/*.toml`), so each matrix job only needs
+`path`: the server URL, content GUID, and entrypoint are read from the deployment
+file inside that directory. If your repository has a different layout, adapt that
+logic.
+
+```yaml
+name: Deploy changed apps
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  changed-apps:
+    runs-on: ubuntu-latest
+    outputs:
+      apps: ${{ steps.detect.outputs.apps }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          filter: blob:none
+
+      - name: Detect which apps changed
+        id: detect
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+
+          # On a branch's first push, github.event.before is all zeros.
+          if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            BASE_SHA=$(git rev-parse "${HEAD_SHA}^")
+          fi
+
+          # Every top-level directory is one piece of content, so the app to
+          # deploy is the first path segment of each changed file. Files at the
+          # repo root and dot-directories like .github aren't content.
+          # Three-dot range diffs against the merge base, so unrelated commits
+          # on main don't look like changes to this PR.
+          apps=$(git diff --name-only "${BASE_SHA}...${HEAD_SHA}" \
+            | jq -R -s -c '
+                split("\n")
+                | map(select(contains("/")) | split("/")[0])
+                | map(select(startswith(".") | not))
+                | unique')
+
+          count=$(jq length <<<"$apps")
+          echo "$count app(s) to deploy: $apps" | tee -a "$GITHUB_STEP_SUMMARY"
+
+          # A matrix generates at most 256 jobs per workflow run. Fail with a
+          # clear message rather than letting the next job blow up.
+          if [ "$count" -gt 256 ]; then
+            echo "::error::$count changed apps exceeds the 256-job matrix limit"
+            exit 1
+          fi
+
+          echo "apps=$apps" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    needs: changed-apps
+    if: needs.changed-apps.outputs.apps != '[]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    strategy:
+      fail-fast: false
+      # Cap how many deploys hit Connect at once.
+      max-parallel: 10
+      matrix:
+        app: ${{ fromJSON(needs.changed-apps.outputs.apps) }}
+    concurrency:
+      group: connect-deploy-${{ matrix.app }}-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Every step of the deploy runs inside `path`, so a sparse checkout of
+          # just this app is enough.
+          # Widen it if your apps read files from outside their own directory.
+          sparse-checkout: ${{ matrix.app }}
+
+      - name: Deploy to Connect
+        uses: posit-dev/connect-actions/deploy@main
+        with:
+          path: ${{ matrix.app }}
+          github-token: ${{ github.token }}
+```
+
+Two things to note: 
+
+* On pull requests with the default `draft: true` argument, each app's deploy leaves its own PR
+comment, keyed by content GUID. So 20 changed apps would mean 20 comments. You can drop `github-token` to suppress the comments, but those
+comments are also how [`cleanup-previews`](#cleanup-previews---cleanup-pr-preview-bundles)
+finds the draft bundles to delete when the PR closes, so if you did that, plan another way to clean up drafts. Cleanup itself
+needs no changes for this pattern: a single cleanup job reads every preview
+comment on the PR and deletes each bundle it finds, however many apps deployed.
+
+* A trusted publisher is configured per content
+item, so if you are using that feature, each app needs its own. Before running the workflow that relies on trusted publishing, you can loop over the deployment files to set it rather than
+clicking through the UI (see [above](#configuring-a-trusted-publisher-from-the-command-line)
+for the `REPOSITORY` value). Re-adding the same workload reuses the existing
+identity, so the loop is safe to re-run as apps are added:
+
+```bash
+for toml in */.posit/publish/deployments/*.toml; do
+  guid=$(grep -m1 '^id = ' "$toml" | cut -d'"' -f2)
+  posit connect api "v1/content/$guid/trusted-publishers" \
+    -H "Content-Type: application/json" --input - <<JSON
+{
+  "name": "GitHub Actions ($REPOSITORY)",
+  "template": "github-actions",
+  "config": {"repository": "$REPOSITORY", "audience": "connect"}
+}
+JSON
+done
+```
+
 ---
 
 ### `cleanup-previews` - Cleanup PR Preview Bundles
