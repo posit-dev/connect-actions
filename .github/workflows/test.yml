@@ -286,6 +286,16 @@ jobs:
           [ "$COUNT" -ge 1 ] || { echo "ERROR: no bundles created"; exit 1; }
           echo "Production deploy verified."
 
+      - name: Verify deployment record cleaned up
+        run: |
+          set -euo pipefail
+          if [ -d "tests/e2e/fastapi-app/rsconnect-python" ]; then
+            echo "ERROR: rsconnect-python directory was not cleaned up after deploy"
+            ls -la tests/e2e/fastapi-app/rsconnect-python/
+            exit 1
+          fi
+          echo "Deployment record cleaned up."
+
       # --- Non-manifest deploy (app_mode lookup) --------------------------------
       # The prod record now has app_mode "python-fastapi" from the deploy above,
       # so redeploying it *without* a manifest exercises the other deploy.sh
