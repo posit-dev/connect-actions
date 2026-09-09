@@ -235,6 +235,16 @@ runs:
             });
           }
 
+    # rsconnect-python writes a deployment record into rsconnect-python/ in
+    # the working directory. If left on disk it can override the default
+    # server on the next deploy, breaking workflows that target multiple
+    # Connect servers. Clean it up alongside logout.
+    - name: Clean up deployment record
+      if: always()
+      shell: bash
+      working-directory: ${{ inputs.path }}
+      run: rm -rf rsconnect-python
+
     # Drop the stored credential so it doesn't outlive this action. `|| true`
     # tolerates the case where login never ran (e.g. an earlier step failed).
     - name: Log out of Connect
