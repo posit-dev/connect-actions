@@ -66,14 +66,14 @@ jobs:
         run: |
           echo "value=$(echo '${{ github.triggering_actor }}' | sed 's/[^a-zA-Z0-9_+=,.@-]/_/g')" >> "$GITHUB_OUTPUT"
 
-      - uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+      - uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
         with:
           role-to-assume: arn:aws:iam::440849847947:role/claude-code-gha
           role-session-name: ${{ steps.session-name.outputs.value }}
           aws-region: us-east-2
 
       - name: Run Claude Code Action
-        uses: anthropics/claude-code-action@9d7150bc8a3dae8149739a88019d192b579ad90c # v1.0.193
+        uses: anthropics/claude-code-action@56cf60fde42f7b19c3abfd5c9c48b69a1288461f # v1.0.222
         with:
           use_bedrock: true
           github_token: ${{ steps.generate-token.outputs.token }}
